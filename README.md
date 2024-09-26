@@ -1,9 +1,12 @@
 # HIVIDS_DualCore
 
 ## General Description
+This project is an Hybrid In-Vehicle Intrusion Detection System, based on statistical analysis and user-defined rules.
+It analyzes CANBus traffic and tries to detect differents attacks scenarios such as : DOS, Flooding, Replay, Suspend, Fuzzing attacks.
 
 ## How to use
 This version uses a dual core setup of the Pynq Z2 or ZU FPGA. Therefore, a few steps need to be checked to make it work.
+
 Prerequisites : This application is made for Cortex A9 cores, with a Coretx A53 version that has not beem tested yet. It is mandatory to have an FPGA equiped with this processors to ensure good timestamping of frames using the processors' cycles counters.
 Also, this applicatoin needs to run on a Vivado Desing including a Pmod CAN Controller, connecting via SPI interface. The PmodCAN component needs to be plugged to the Pmod Connector on the board, respecting the configuration from Vivado (Pmod A or B). Configuration on Vivado can be a bit tricky because you need to make the connection pins by pins according to documentation. A tutorial to detail this step will be made later on.
 If you are using Pynq ZU, and you need the Raspberry Pi header connector, make sure to use Pmod B connector as Pmod A shares pins with the said Raspberry connector.
