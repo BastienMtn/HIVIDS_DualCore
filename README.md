@@ -19,4 +19,11 @@ Second, you have to create two applications, one on each domain, ensuring that c
 Then, Core 1 needs to be setup to use the Pmod connector.
 
 Third, you need to ensure the correct configuration of linker scripts (they are both in this repository, but if you modify them make sure the shared memory region is common to both cores, and also make sur Core 0 has enough memory space to operate).
-Last, you need to add the -DUSEAMP 1 flag in the compiler settings to ensure both cores know they are running in AMP mode (see tutorial given earlier).
+
+### Core 0 Config
+You need to add the following libraries to the BSP file :
+- xiltimer : with paranmeter en_interval_timer set as true
+- xilffs : with parameter use_lfn = 3 (or anything different than 0 should work)
+Additionnally, you need to change freeRTOS' total heap size to set it as 131072 (in kernel_behavior)
+### Core 1
+You need to add the -DUSEAMP 1 flag in the compiler settings to ensure it knows its running in AMP mode (see tutorial given earlier).
