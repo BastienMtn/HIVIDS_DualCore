@@ -6,11 +6,15 @@
  */
 
 #include "can_security.h"
+
+// Includes for lwip
+#include "FreeRTOSConfig.h"
 #include "lwip/sockets.h"
 #include "lwipopts.h"
 #include "lwip/sys.h"
 
 #include "netif/xadapter.h"
+#include "platform_config.h"
 
 #if LWIP_IPV6 == 1
 #include "lwip/ip.h"
@@ -19,6 +23,13 @@
 #include "lwip/dhcp.h"
 #endif
 #endif
+
+#define LWIP_DEBUG
+#define MAX_CONNECTIONS 8
+int new_sd[MAX_CONNECTIONS];
+int connection_index;
+
+u16_t echo_port = 7;
 
 static struct netif server_netif;
 
@@ -659,69 +670,129 @@ int can_rate_msrmnt()
 // Implementation details are yet to be found
 void timestamp_check() {};
 
-// Function to init all the security functions of the CANBus
-int can_security_init()
+
+void print_ip(char *msg, ip_addr_t *ip)
 {
-    // Initialize the receive and transmit buffers
-    rx_lut_write = xSemaphoreCreateMutex();
-    if (rx_lut_write == NULL)
-    {
-        /* There was insufficient FreeRTOS heap available for the semaphore to
-        be created successfully. */
-        xil_printf("Error initializing rx_lut_write\r\n");
-    }
-    can_circ_lut_init(&rx_lut1);
-    can_circ_lut_init(&rx_lut2);
-    can_circ_lut_init(&tx_lut);
-
-    void lwip_createSocket();
-
-    for (int i = 0; i < HISTORY_SIZE; i++)
-    {
-        rx_bndw[i] = 0.0;
-        tx_bndw[i] = 0.0;
-    }
-    latency_refresh_count = 0;
-    mean_rates_kmown_IDs[0].key = 0x100;
-    mean_rates_kmown_IDs[1].key = 0x110;
-    mean_rates_kmown_IDs[2].key = 0x120;
-    mean_rates_kmown_IDs[3].key = 0x180;
-    mean_rates_kmown_IDs[4].key = 0x1a0;
-    mean_rates_kmown_IDs[5].key = 0x1c0;
-    mean_rates_kmown_IDs[6].key = 0x280;
-    mean_rates_kmown_IDs[7].key = 0x2e0;
-    mean_rates_kmown_IDs[8].key = 0x300;
-    mean_rates_kmown_IDs[9].key = 0x318;
-    mean_rates_kmown_IDs[10].key = 0x3e0;
-    mean_rates_kmown_IDs[11].key = 0x5c0;
-    for (int i = 0; i < 12; i++)
-    {
-        mean_rates_kmown_IDs[i].value = 0.0;
-    }
-
-    xTaskCreate(secTask, (const char *)"CANSecTask",
-                configMINIMAL_STACK_SIZE * 8,
-                NULL,
-                tskIDLE_PRIORITY+1,
-                &xCanSecTask);
-
-    // Initialize the software timer
-    TimerHandle_t timerHndlMetricsRefresh;
-    timerHndlMetricsRefresh = xTimerCreate("timer1Sec", pdMS_TO_TICKS(CANSEC_REFRESH_RATE), pdTRUE, (void *)0, vTimerCbMetricsRefresh); /* callback */
-    if (timerHndlMetricsRefresh == NULL)
-    {
-        xil_printf("!!! Error while creating timer !!!\r\n");
-    }
-    if (xTimerStart(timerHndlMetricsRefresh, 0) == pdFAIL)
-    {
-        xil_printf("Timer has not started \r\n");
-    }
-
-    return EXIT_SUCCESS;
+	xil_printf(msg);
+	xil_printf("%d.%d.%d.%d\n\r", ip4_addr1(ip), ip4_addr2(ip),
+			   ip4_addr3(ip), ip4_addr4(ip));
 }
 
-void lwip_createSocket(){
-    	struct netif *netif;
+void print_ip_settings(ip_addr_t *ip, ip_addr_t *mask, ip_addr_t *gw)
+{
+
+	print_ip("Board IP: ", ip);
+	print_ip("Netmask : ", mask);
+	print_ip("Gateway : ", gw);
+}
+
+void print_echo_app_header()
+{
+	xil_printf("%20s %6d %s\r\n", "echo server",
+			   echo_port,
+			   "$ telnet <board_ip> 7");
+}
+
+/* thread spawned for each connection */
+void process_echo_request(void *p)
+{
+	int sd = *(int *)p;
+	int RECV_BUF_SIZE = 2048;
+	char recv_buf[RECV_BUF_SIZE];
+	int n, nwrote;
+
+	while (1)
+	{
+		/* read a max of RECV_BUF_SIZE bytes from socket */
+		if ((n = read(sd, recv_buf, RECV_BUF_SIZE)) < 0)
+		{
+			xil_printf("%s: error reading from socket %d, closing socket\r\n", __FUNCTION__, sd);
+			break;
+		}
+
+		/* break if the recved message = "quit" */
+		if (!strncmp(recv_buf, "quit", 4))
+			break;
+
+		/* break if client closed connection */
+		if (n <= 0)
+			break;
+
+		/* handle request */
+		if ((nwrote = write(sd, recv_buf, n)) < 0)
+		{
+			xil_printf("%s: ERROR responding to client echo request. received = %d, written = %d\r\n",
+					   __FUNCTION__, n, nwrote);
+			xil_printf("Closing socket %d\r\n", sd);
+			break;
+		}
+	}
+
+	/* close connection */
+	close(sd);
+	vTaskDelete(NULL);
+}
+
+void echo_application_thread()
+{
+	int sock;
+	int size;
+#if LWIP_IPV6 == 0
+	struct sockaddr_in address, remote;
+
+	memset(&address, 0, sizeof(address));
+
+	if ((sock = lwip_socket(AF_INET, SOCK_STREAM, 0)) < 0)
+		return;
+
+	address.sin_family = AF_INET;
+	address.sin_port = htons(echo_port);
+	address.sin_addr.s_addr = INADDR_ANY;
+#else
+	struct sockaddr_in6 address, remote;
+
+	memset(&address, 0, sizeof(address));
+
+	address.sin6_len = sizeof(address);
+	address.sin6_family = AF_INET6;
+	address.sin6_port = htons(echo_port);
+
+	memset(&(address.sin6_addr), 0, sizeof(address.sin6_addr));
+
+	if ((sock = lwip_socket(AF_INET6, SOCK_STREAM, 0)) < 0)
+		return;
+#endif
+
+	if (lwip_bind(sock, (struct sockaddr *)&address, sizeof(address)) < 0)
+		return;
+
+	lwip_listen(sock, 0);
+
+	size = sizeof(remote);
+
+	while (1)
+	{
+		if ((new_sd[connection_index] = lwip_accept(sock, (struct sockaddr *)&remote, (socklen_t *)&size)) > 0)
+		{
+			sys_thread_new("echos", process_echo_request,
+						   (void *)&(new_sd[connection_index]),
+						   TCPIP_THREAD_STACKSIZE,
+						   DEFAULT_THREAD_PRIO);
+			if (++connection_index >= MAX_CONNECTIONS)
+			{
+				break;
+			}
+		}
+	}
+	xil_printf("Maximum number of connections reached, No further connections will be accepted\r\n");
+	vTaskSuspend(NULL);
+}
+
+
+
+void network_thread(void *p)
+{
+	struct netif *netif;
 	/* the mac address of the board. this should be unique per board */
 	unsigned char mac_ethernet_address[] = {0x00, 0x0a, 0x35, 0x00, 0x01, 0x02};
 #if LWIP_IPV6 == 0
@@ -786,24 +857,112 @@ void lwip_createSocket(){
 	/* specify that the network if is up */
 	netif_set_up(netif);
 
-    int s = lwip_socket(AF_INET, SOCK_STREAM, 0);
-    LWIP_ASSERT("s >= 0", s >= 0);
+	/* start packet receive thread - required for lwIP operation */
+	sys_thread_new("xemacif_input_thread", (void (*)(void *))xemacif_input_thread, netif,
+				   TCPIP_THREAD_STACKSIZE,
+				   DEFAULT_THREAD_PRIO);
 
-    /* connect */
-    struct sockaddr_in addr;
-    int ret = lwip_connect(s, (struct sockaddr*)&addr, sizeof(addr));
-    /* should succeed */
-    LWIP_ASSERT("ret == 0", ret == 0);
+#if LWIP_IPV6 == 0
+#if LWIP_DHCP == 1
+	dhcp_start(netif);
+	while (1)
+	{
+		vTaskDelay(DHCP_FINE_TIMER_MSECS / portTICK_RATE_MS);
+		dhcp_fine_tmr();
+		mscnt += DHCP_FINE_TIMER_MSECS;
+		if (mscnt >= DHCP_COARSE_TIMER_SECS * 1000)
+		{
+			dhcp_coarse_tmr();
+			mscnt = 0;
+		}
+	}
+#else
+	xil_printf("\r\n");
+	xil_printf("%20s %6s %s\r\n", "Server", "Port", "Connect With..");
+	xil_printf("%20s %6s %s\r\n", "--------------------", "------", "--------------------");
 
-    /* write something */
-    ret = lwip_write(s, "test", 4);
-    LWIP_ASSERT("ret == 4", ret == 4);
-
-    return;
+	print_echo_app_header();
+	xil_printf("\r\n");
+	sys_thread_new("echod", echo_application_thread, 0,
+				   TCPIP_THREAD_STACKSIZE,
+				   DEFAULT_THREAD_PRIO);
+	vTaskDelete(NULL);
+#endif
+#else
+	print_echo_app_header();
+	xil_printf("\r\n");
+	sys_thread_new("echod", echo_application_thread, 0,
+				   THREAD_STACKSIZE,
+				   DEFAULT_THREAD_PRIO);
+	vTaskDelete(NULL);
+#endif
+	return;
 }
 
-void lwip_closeSocket(){
-    int ret = lwip_close(s);
-    LWIP_ASSERT("ret == 0", ret == 0);
-    return;
+
+
+
+// Function to init all the security functions of the CANBus
+int can_security_init()
+{
+    // Initialize the receive and transmit buffers
+    rx_lut_write = xSemaphoreCreateMutex();
+    if (rx_lut_write == NULL)
+    {
+        /* There was insufficient FreeRTOS heap available for the semaphore to
+        be created successfully. */
+        xil_printf("Error initializing rx_lut_write\r\n");
+    }
+    can_circ_lut_init(&rx_lut1);
+    can_circ_lut_init(&rx_lut2);
+    can_circ_lut_init(&tx_lut);
+
+    //tcpip_init(createSocket, NULL);
+    lwip_init();
+    sys_thread_new("NW_THRD", network_thread, NULL,
+    				   TCPIP_THREAD_STACKSIZE,
+    				   DEFAULT_THREAD_PRIO);
+
+    for (int i = 0; i < HISTORY_SIZE; i++)
+    {
+        rx_bndw[i] = 0.0;
+        tx_bndw[i] = 0.0;
+    }
+    latency_refresh_count = 0;
+    mean_rates_kmown_IDs[0].key = 0x100;
+    mean_rates_kmown_IDs[1].key = 0x110;
+    mean_rates_kmown_IDs[2].key = 0x120;
+    mean_rates_kmown_IDs[3].key = 0x180;
+    mean_rates_kmown_IDs[4].key = 0x1a0;
+    mean_rates_kmown_IDs[5].key = 0x1c0;
+    mean_rates_kmown_IDs[6].key = 0x280;
+    mean_rates_kmown_IDs[7].key = 0x2e0;
+    mean_rates_kmown_IDs[8].key = 0x300;
+    mean_rates_kmown_IDs[9].key = 0x318;
+    mean_rates_kmown_IDs[10].key = 0x3e0;
+    mean_rates_kmown_IDs[11].key = 0x5c0;
+    for (int i = 0; i < 12; i++)
+    {
+        mean_rates_kmown_IDs[i].value = 0.0;
+    }
+
+    xTaskCreate(secTask, (const char *)"CANSecTask",
+                configMINIMAL_STACK_SIZE * 8,
+                NULL,
+                tskIDLE_PRIORITY+1,
+                &xCanSecTask);
+
+    // Initialize the software timer
+    TimerHandle_t timerHndlMetricsRefresh;
+    timerHndlMetricsRefresh = xTimerCreate("timer1Sec", pdMS_TO_TICKS(CANSEC_REFRESH_RATE), pdTRUE, (void *)0, vTimerCbMetricsRefresh); /* callback */
+    if (timerHndlMetricsRefresh == NULL)
+    {
+        xil_printf("!!! Error while creating timer !!!\r\n");
+    }
+    if (xTimerStart(timerHndlMetricsRefresh, 0) == pdFAIL)
+    {
+        xil_printf("Timer has not started \r\n");
+    }
+
+    return EXIT_SUCCESS;
 }

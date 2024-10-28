@@ -70,7 +70,7 @@ typedef struct CANSecExtFrame {
 
 // Error struct to store matching rule lines
 struct Error {
-    char **matchingRules;
+    char matchingRules[MAX_RULES];
     int count;
 };
 

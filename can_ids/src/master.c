@@ -71,6 +71,8 @@
 // Includes for IDS
 #include "can_security.h"
 
+#include "lwipopts.h"
+
 /************************** Constant Definitions *****************************/
 #define ARM1_STARTADR 0xFFFFFFF0
 #define ARM1_BASEADDR 0x1FE01000
@@ -165,7 +167,11 @@ int main()
 
    status = file_init(&fil, FileName);
 
-   can_security_init();
+   sys_thread_new("main_thrd", (void (*)(void *))can_security_init, 0,
+				   TCPIP_THREAD_STACKSIZE,
+				   DEFAULT_THREAD_PRIO);
+
+   //can_security_init();
 
    xTaskCreate(saveTask,
                (const char *)"SD1",
