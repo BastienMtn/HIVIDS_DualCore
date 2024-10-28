@@ -111,7 +111,7 @@ struct Error checkWithRules(CANSecExtFrame frame)
     // Compare the HTTP frame ID with each rule in the lookup table
     for (int i = 0; i < ruleCount; i++)
     {
-        xil_printf("Comparing with rules\r\n");
+        //xil_printf("Comparing with rules\r\n");
         long unsigned int frame_id = frame.msg.id;
         if(ruleTable[i].extended){
             frame_id = frame.msg.id << 18 + frame.msg.eid;

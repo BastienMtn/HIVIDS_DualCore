@@ -98,6 +98,7 @@ long unsigned int cansec_gettime()
 void can_security_store(CANSecExtFrame frame)
 {
     // TODO: Add info on whether the frame has passed, been dropped, blocked, etc ??
+    checkWithRules(frame);
     if (frame.dir == RECEIVE)
     {
         xSemaphoreTake(rx_lut_write, portMAX_DELAY);
@@ -150,6 +151,8 @@ bool DOS_detection()
 // TODO: Data consistency check
 // If a node sends a speed of 100kmh, check with the other nodes if its realistic (for example different wheels)
 // Also work for oss/iss, app and rpm, etc
+
+// TODO: Period deviation measurement for each known ID
 
 // TODO: Node Isolation mechanism ?
 
@@ -635,7 +638,7 @@ int can_rate_msrmnt()
     return index;
 }
 
-// TODO: Implement timestamp check
+// TODO: Implement timestamp check ?
 // If we want to be able to detect spoofing, we must be able to detect 10-15ns derivation.
 // To do this, we need to add an hw timer in vivado to get the precise timestamps
 // Implementation details are yet to be found
