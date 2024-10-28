@@ -59,4 +59,8 @@ bool DOS_detection();
 
 int can_security_init();
 
+void lwip_createSocket();
+
+void lwip_closeSocket()
+
 #endif /* SRC_CAN_SECURITY_H_ */

@@ -6,6 +6,21 @@
  */
 
 #include "can_security.h"
+#include "lwip/sockets.h"
+#include "lwipopts.h"
+#include "lwip/sys.h"
+
+#include "netif/xadapter.h"
+
+#if LWIP_IPV6 == 1
+#include "lwip/ip.h"
+#else
+#if LWIP_DHCP == 1
+#include "lwip/dhcp.h"
+#endif
+#endif
+
+static struct netif server_netif;
 
 static TaskHandle_t xCanSecTask;
 // Global variable to store most recent sent frames
@@ -659,6 +674,8 @@ int can_security_init()
     can_circ_lut_init(&rx_lut2);
     can_circ_lut_init(&tx_lut);
 
+    void lwip_createSocket();
+
     for (int i = 0; i < HISTORY_SIZE; i++)
     {
         rx_bndw[i] = 0.0;
@@ -701,4 +718,92 @@ int can_security_init()
     }
 
     return EXIT_SUCCESS;
+}
+
+void lwip_createSocket(){
+    	struct netif *netif;
+	/* the mac address of the board. this should be unique per board */
+	unsigned char mac_ethernet_address[] = {0x00, 0x0a, 0x35, 0x00, 0x01, 0x02};
+#if LWIP_IPV6 == 0
+	ip_addr_t ipaddr, netmask, gw;
+#if LWIP_DHCP == 1
+	int mscnt = 0;
+#endif
+#endif
+
+	netif = &server_netif;
+
+	xil_printf("\r\n\r\n");
+	xil_printf("-----lwIP Socket Mode Echo server Demo Application ------\r\n");
+
+#if LWIP_IPV6 == 0
+#if LWIP_DHCP == 0
+	/* initialize IP addresses to be used */
+	IP4_ADDR(&ipaddr, 192, 168, 1, 10);
+	IP4_ADDR(&netmask, 255, 255, 255, 0);
+	IP4_ADDR(&gw, 192, 168, 1, 1);
+#endif
+
+	/* print out IP settings of the board */
+
+#if LWIP_DHCP == 0
+	print_ip_settings(&ipaddr, &netmask, &gw);
+	/* print all application headers */
+#endif
+
+#if LWIP_DHCP == 1
+	ipaddr.addr = 0;
+	gw.addr = 0;
+	netmask.addr = 0;
+#endif
+#endif
+
+#if LWIP_IPV6 == 0
+	/* Add network interface to the netif_list, and set it as default */
+	if (!xemac_add(netif, &ipaddr, &netmask, &gw, mac_ethernet_address, PLATFORM_EMAC_BASEADDR))
+	{
+		xil_printf("Error adding N/W interface\r\n");
+		return;
+	}
+#else
+	/* Add network interface to the netif_list, and set it as default */
+	if (!xemac_add(netif, NULL, NULL, NULL, mac_ethernet_address, PLATFORM_EMAC_BASEADDR))
+	{
+		xil_printf("Error adding N/W interface\r\n");
+		return;
+	}
+
+	netif->ip6_autoconfig_enabled = 1;
+
+	netif_create_ip6_linklocal_address(netif, 1);
+	netif_ip6_addr_set_state(netif, 0, IP6_ADDR_VALID);
+
+	print_ip6("\n\rBoard IPv6 address ", &netif->ip6_addr[0].u_addr.ip6);
+#endif
+
+	netif_set_default(netif);
+
+	/* specify that the network if is up */
+	netif_set_up(netif);
+
+    int s = lwip_socket(AF_INET, SOCK_STREAM, 0);
+    LWIP_ASSERT("s >= 0", s >= 0);
+
+    /* connect */
+    struct sockaddr_in addr;
+    int ret = lwip_connect(s, (struct sockaddr*)&addr, sizeof(addr));
+    /* should succeed */
+    LWIP_ASSERT("ret == 0", ret == 0);
+
+    /* write something */
+    ret = lwip_write(s, "test", 4);
+    LWIP_ASSERT("ret == 4", ret == 4);
+
+    return;
+}
+
+void lwip_closeSocket(){
+    int ret = lwip_close(s);
+    LWIP_ASSERT("ret == 0", ret == 0);
+    return;
 }
