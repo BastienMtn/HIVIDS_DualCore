@@ -167,8 +167,8 @@ int main()
 
    status = file_init(&fil, FileName);
 
-   sys_thread_new("main_thrd", (void (*)(void *))can_security_init, 0,
-				   TCPIP_THREAD_STACKSIZE,
+   sys_thread_new("cansec_thrd", (void (*)(void *))can_security_init, 0,
+				   TCPIP_THREAD_STACKSIZE*2,
 				   DEFAULT_THREAD_PRIO);
 
    //can_security_init();

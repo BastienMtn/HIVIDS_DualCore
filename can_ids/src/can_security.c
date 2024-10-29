@@ -701,6 +701,10 @@ void process_echo_request(void *p)
 	char recv_buf[RECV_BUF_SIZE];
 	int n, nwrote;
 
+	for(int i=0; i<100; i++){
+		lwip_write(sd,"BONJOUR",(size_t)7);
+	}
+
 	while (1)
 	{
 		/* read a max of RECV_BUF_SIZE bytes from socket */
@@ -742,8 +746,12 @@ void echo_application_thread()
 
 	memset(&address, 0, sizeof(address));
 
-	if ((sock = lwip_socket(AF_INET, SOCK_STREAM, 0)) < 0)
+	if ((sock = lwip_socket(AF_INET, SOCK_DGRAM, 0)) < 0)
 		return;
+	else xil_printf("Successfully created Dgram sock\r\n");
+
+	if(lwip_write(sock, "Bonjour", (size_t)7)!=7) xil_printf("Error sending bonjour");
+	else xil_printf("Successfully sent bonjour\r\n");
 
 	address.sin_family = AF_INET;
 	address.sin_port = htons(echo_port);
@@ -917,12 +925,6 @@ int can_security_init()
     can_circ_lut_init(&rx_lut2);
     can_circ_lut_init(&tx_lut);
 
-    //tcpip_init(createSocket, NULL);
-    lwip_init();
-    sys_thread_new("NW_THRD", network_thread, NULL,
-    				   TCPIP_THREAD_STACKSIZE,
-    				   DEFAULT_THREAD_PRIO);
-
     for (int i = 0; i < HISTORY_SIZE; i++)
     {
         rx_bndw[i] = 0.0;
@@ -963,6 +965,12 @@ int can_security_init()
     {
         xil_printf("Timer has not started \r\n");
     }
+
+    //tcpip_init(createSocket, NULL);
+    lwip_init();
+    sys_thread_new("NW_THRD", network_thread, NULL,
+    				   TCPIP_THREAD_STACKSIZE,
+    				   DEFAULT_THREAD_PRIO);
 
     return EXIT_SUCCESS;
 }
