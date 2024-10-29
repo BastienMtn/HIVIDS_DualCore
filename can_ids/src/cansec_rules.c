@@ -12,7 +12,7 @@
 bool applyRule(CANSecExtFrame frame, CANRule rule)
 {
     // TODO - Add contains data field
-    xil_printf("Applying rule\r\n");
+    //xil_printf("Applying rule\r\n");
     bool pass = false;
     char errMessage[128] = "Default message\r\n";
 
@@ -23,7 +23,7 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
 
     for (int i = 0; i < rule.num_options; i++)
     {
-        xil_printf("Analysing option\r\n");
+        //xil_printf("Analysing option\r\n");
         sum = 0;
         switch (rule.options[i].type)
         {
@@ -95,7 +95,7 @@ struct Error checkWithRules(CANSecExtFrame frame)
     // Check if rule table is initialized
     if (ruleTable == NULL)
     {
-        printf("Error: Rule table not initialized.\r\n");
+        xil_printf("Error: Rule table not initialized.\r\n");
         return error;
     }
 
@@ -116,13 +116,13 @@ struct Error checkWithRules(CANSecExtFrame frame)
             if (!applyRule(frame, ruleTable[i]))
             {
                 // Store the matching rule line
-                printf(error.matchingRules[i], 1, "%d", 1);
+                error.matchingRules[i]='1';
                 error.count++;
             }else{
-                printf(error.matchingRules[i], 1, "%d", 0);
+                error.matchingRules[i]='0';
             }
         }else{
-            printf(error.matchingRules[i], 1, "%d", 0);
+            error.matchingRules[i]='0';
         }
     }
 
