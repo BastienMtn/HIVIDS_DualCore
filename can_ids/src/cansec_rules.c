@@ -89,22 +89,13 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
 struct Error checkWithRules(CANSecExtFrame frame)
 {
     // Initialize error struct
-    struct Error error;
-    error.matchingRules = NULL;
+    static struct Error error;
     error.count = 0;
 
     // Check if rule table is initialized
     if (ruleTable == NULL)
     {
         printf("Error: Rule table not initialized.\r\n");
-        return error;
-    }
-
-    // Allocate memory for matching rule lines
-    error.matchingRules = (char **)malloc(MAX_RULES * sizeof(char *));
-    if (error.matchingRules == NULL)
-    {
-        perror("Memory allocation error\r\n");
         return error;
     }
 
@@ -125,9 +116,13 @@ struct Error checkWithRules(CANSecExtFrame frame)
             if (!applyRule(frame, ruleTable[i]))
             {
                 // Store the matching rule line
-                printf(error.matchingRules[error.count], 1, "%d", i);
+                printf(error.matchingRules[i], 1, "%d", 1);
                 error.count++;
+            }else{
+                printf(error.matchingRules[i], 1, "%d", 0);
             }
+        }else{
+            printf(error.matchingRules[i], 1, "%d", 0);
         }
     }
 
