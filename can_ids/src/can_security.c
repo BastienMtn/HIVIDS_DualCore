@@ -29,6 +29,7 @@ int latency_refresh_count;
 // sys_mutex_t rx_lut_mut;
 // sys_mutex_t tx_lut_mut;
 
+
 static void secTask(void *pvParameters)
 {
     while (1)
@@ -141,11 +142,7 @@ bool DOS_detection()
     /*if(bndwth.rx_bndwth > rx_bd_mean*5){
         return true;
     }*/
-    if (bndwth.rx_bndwth > rx_bd_mean + 3 * rx_bd_sd)
-    {
-        return true;
-    }
-    return false;
+    return bndwth.rx_bndwth > rx_bd_mean + 3 * rx_bd_sd;
 }
 
 // TODO: Data consistency check
@@ -182,14 +179,12 @@ struct Bandwidths bandwidth_measurement()
     static CAN_Message data[TABLE_SIZE];
     int my_time = cansec_gettime();
     // data = malloc(TABLE_SIZE*sizeof(CAN_Message));
+    CAN_Circ_LookupTable* rx_lut = &rx_lut1;
     if (writeRXLut1)
     {
-        count = can_circ_lut_getValuesBetweenLimits(&rx_lut2, (my_time - CANSEC_BNDW_SAMPLE_SIZE * 1000), my_time, data);
+        rx_lut = &rx_lut2;
     }
-    else
-    {
-        count = can_circ_lut_getValuesBetweenLimits(&rx_lut1, (my_time - CANSEC_BNDW_SAMPLE_SIZE * 1000), my_time, data);
-    }
+    count = can_circ_lut_getValuesBetweenLimits(&rx_lut2, (my_time - CANSEC_BNDW_SAMPLE_SIZE * 1000), my_time, data);
     for (int i = 0; i < count; i++)
     {
         // xil_printf("Frame in rx lut n%d has ID %X and size %d \r\n",i,data[i].id,data[i].dlc);
@@ -213,19 +208,16 @@ struct Bandwidths bandwidth_measurement()
     resp.rx_bndwth = rx_bndw[index];
     resp.tx_bndwth = tx_bndw[index];
 
+    int size = index;
     if (isFull)
     {
-        rx_bd_mean = calculateMEAN(rx_bndw, HISTORY_SIZE);
-        rx_bd_var = calculateVAR(rx_bndw, HISTORY_SIZE);
-        rx_bd_sd = calculateSD(rx_bndw, HISTORY_SIZE);
+        size = HISTORY_SIZE;
     }
-    else
-    {
-        rx_bd_mean = calculateMEAN(rx_bndw, index);
-        rx_bd_var = calculateVAR(rx_bndw, index);
-        rx_bd_sd = calculateSD(rx_bndw, index);
-    }
-    if (isFull == false && index == (HISTORY_SIZE - 1))
+    rx_bd_mean = calculateMEAN(rx_bndw, size);
+    rx_bd_var = calculateVAR(rx_bndw, size);
+    rx_bd_sd = calculateSD(rx_bndw, size);
+
+    if (!isFull && index == (HISTORY_SIZE - 1))
         isFull = true;
     index = (index + 1) % HISTORY_SIZE;
     return resp;
@@ -284,14 +276,13 @@ int can_rate_msrmnt()
     static int head = 0;
     int count = 0;
     int my_time = cansec_gettime();
+    // we wouldnt want it the other way around?
+    CAN_Circ_LookupTable* rx_lut = &rx_lut1;
     if (writeRXLut1)
     {
-        count = can_circ_lut_getValuesBetweenLimits(&rx_lut2, my_time - CANSEC_RATE_SAMPLE_SIZE * 1000, my_time, data);
+        rx_lut = &rx_lut2;
     }
-    else
-    {
-        count = can_circ_lut_getValuesBetweenLimits(&rx_lut1, my_time - CANSEC_RATE_SAMPLE_SIZE * 1000, my_time, data);
-    }
+    count = can_circ_lut_getValuesBetweenLimits(&rx_lut2, my_time - CANSEC_RATE_SAMPLE_SIZE * 1000, my_time, data);
     int index = 0;
     bool found = false;
     for (int i = 0; i < TABLE_SIZE; i++)
@@ -303,336 +294,123 @@ int can_rate_msrmnt()
     {
         for (int j = 0; j < index; j++)
         {
-            if (data[i].ide == 0)
+            if ((data[i].ide == 0 && rates[j].key == data[i].id) || // Normal ID check
+                (data[i].ide != 0 && (rates[j].key == (data[i].id << 18) + data[i].eid))) // Extended ID check
             {
-                if (rates[j].key == data[i].id)
-                {
-                    rates[j].value++;
-                    found = true;
-                    break;
-                }
-            }
-            else
-            {
-                if (rates[j].key == (data[i].id << 18) + data[i].eid)
-                {
-                    rates[j].value++;
-                    found = true;
-                    break;
-                }
+                rates[j].value++;
+                found = true;
+                break;
             }
         }
-        if (found == false)
+        if (found)
         {
-            if (data[i].ide == 0)
-            {
-                rates[index].key = (long unsigned int)(data[i].id);
-            }
-            else
-            {
-                rates[index].key = (data[i].id << 18) + data[i].eid;
-            }
-            // rates[index].key = (data[i].eid == 0 ? data[i].id : (data[i].id << 18) + data[i].eid);
-            rates[index].value = 1;
-            index++;
+            found = false;
+            continue;
         }
-        found = false;
+        if (data[i].ide == 0)
+        {
+            rates[index].key = (long unsigned int)(data[i].id);
+        }
+        else
+        {
+            rates[index].key = (data[i].id << 18) + data[i].eid;
+        }
+        // rates[index].key = (data[i].eid == 0 ? data[i].id : (data[i].id << 18) + data[i].eid);
+        rates[index].value = 1;
+        index++;
     };
     int sample_size = isFull ? HISTORY_SIZE : head;
     int mean_whole, mean_thousandths, sd_whole, sd_thousandths; // variables pour recuperer partie entiere et millième
     float hist[HISTORY_SIZE];
     for (int i = 0; i < index; i++)
     {
+        int id_idx = 0;
+        char* id[4];
+        bool show_rates = false;
         switch (rates[i].key)
         {
         case 0x110:
-            rates_hist_known_IDs[1][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[1][j].value;
-            }
-            mean_rates_kmown_IDs[1].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[1].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[1].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[1].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[1].value;
-            sd_thousandths = (sd_rates_known_IDs[1].value - sd_whole) * 1000;
-            xil_printf("Rate ID 110 = %d /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[1].value, mean_whole, mean_thousandths,sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[1].value + 3 * sd_rates_known_IDs[1].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 110 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[1].value - 3 * sd_rates_known_IDs[1].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 110 --------------------------- \r\n");
-            }
+            id_idx = 1;
+            id = "110\0";
             break;
         case 0x120:
-            rates_hist_known_IDs[2][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[2][j].value;
-            }
-            mean_rates_kmown_IDs[2].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[2].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[2].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[2].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[2].value;
-            sd_thousandths = (sd_rates_known_IDs[2].value - sd_whole) * 1000;
-            xil_printf("Rate ID 120 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[2].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[2].value + 3 * sd_rates_known_IDs[2].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 120 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[2].value - 3 * sd_rates_known_IDs[2].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 120 --------------------------- \r\n");
-            }
+            id_idx = 2;
+            id = "120\0";
             break;
         case 0x180:
-            rates_hist_known_IDs[3][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[3][j].value;
-            }
-            mean_rates_kmown_IDs[3].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[3].value = calculateSD(hist, sample_size);
-
-            mean_whole = mean_rates_kmown_IDs[3].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[3].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[3].value;
-            sd_thousandths = (sd_rates_known_IDs[3].value - sd_whole) * 1000;
-            xil_printf("Rate ID 180 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", (int)rates[3].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[3].value + 3 * sd_rates_known_IDs[3].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 180 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[3].value - 3 * sd_rates_known_IDs[3].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 180 --------------------------- \r\n");
-            }
+            id_idx = 3;
+            id = "180\0";
+            show_rates = true;
             break;
         case 0x1a0:
-            rates_hist_known_IDs[4][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[4][j].value;
-            }
-            mean_rates_kmown_IDs[4].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[4].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[4].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[4].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[4].value;
-            sd_thousandths = (sd_rates_known_IDs[4].value - sd_whole) * 1000;
-            xil_printf("Rate ID 1A0 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[4].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[4].value + 3 * sd_rates_known_IDs[4].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 1a0 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[4].value - 3 * sd_rates_known_IDs[4].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 1a0 --------------------------- \r\n");
-            }
+            id_idx = 4;
+            id = "1a0\0";
             break;
         case 0x1c0:
-            rates_hist_known_IDs[5][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[5][j].value;
-            }
-            mean_rates_kmown_IDs[5].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[5].value = calculateSD(hist, sample_size);
-
-            mean_whole = mean_rates_kmown_IDs[5].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[5].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[5].value;
-            sd_thousandths = (sd_rates_known_IDs[5].value - sd_whole) * 1000;
-            xil_printf("Rate ID 1C0 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", (int)rates[5].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[5].value + 3 * sd_rates_known_IDs[5].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 1c0 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[5].value - 3 * sd_rates_known_IDs[5].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 1c0 --------------------------- \r\n");
-            }
+            id_idx = 5;
+            id = "1c0\0";
+            show_rates = true;
             break;
         case 0x280:
-            rates_hist_known_IDs[6][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[6][j].value;
-            }
-            mean_rates_kmown_IDs[6].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[6].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[6].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[6].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[6].value;
-            sd_thousandths = (sd_rates_known_IDs[6].value - sd_whole) * 1000;
-            xil_printf("Rate ID 280 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[6].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[6].value + 3 * sd_rates_known_IDs[6].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 280 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[6].value - 3 * sd_rates_known_IDs[6].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 280 --------------------------- \r\n");
-            }
+            id_idx = 6;
+            id = "280\0";
             break;
         case 0x2e0:
-            rates_hist_known_IDs[7][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[7][j].value;
-            }
-            mean_rates_kmown_IDs[7].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[7].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[7].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[7].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[7].value;
-            sd_thousandths = (sd_rates_known_IDs[7].value - sd_whole) * 1000;
-            xil_printf("Rate ID 2E0 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[7].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[7].value + 3 * sd_rates_known_IDs[7].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 2e0 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[7].value - 3 * sd_rates_known_IDs[7].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 2e0 --------------------------- \r\n");
-            }
+            id_idx = 7;
+            id = "2e0\0";
             break;
         case 0x300:
-            rates_hist_known_IDs[8][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[8][j].value;
-            }
-            mean_rates_kmown_IDs[8].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[8].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[8].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[8].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[8].value;
-            sd_thousandths = (sd_rates_known_IDs[8].value - sd_whole) * 1000;
-            xil_printf("Rate ID 300 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[8].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[8].value + 3 * sd_rates_known_IDs[8].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 300 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[8].value - 3 * sd_rates_known_IDs[8].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 300 --------------------------- \r\n");
-            }
+            id_idx = 8;
+            id = "300\0";
             break;
         case 0x318:
-            rates_hist_known_IDs[9][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[9][j].value;
-            }
-            mean_rates_kmown_IDs[9].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[9].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[9].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[9].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[9].value;
-            sd_thousandths = (sd_rates_known_IDs[9].value - sd_whole) * 1000;
-            xil_printf("Rate ID 318 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[9].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[9].value + 3 * sd_rates_known_IDs[9].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 318 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[9].value - 3 * sd_rates_known_IDs[9].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 318 --------------------------- \r\n");
-            }
+            id_idx = 9;
+            id = "318\0";
             break;
         case 0x3e0:
-            rates_hist_known_IDs[10][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[10][j].value;
-            }
-            mean_rates_kmown_IDs[10].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[10].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[10].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[10].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[10].value;
-            sd_thousandths = (sd_rates_known_IDs[10].value - sd_whole) * 1000;
-            xil_printf("Rate ID 3E0 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[10].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[10].value + 3 * sd_rates_known_IDs[10].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 3e0 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[10].value - 3 * sd_rates_known_IDs[10].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 3e0 --------------------------- \r\n");
-            }
+            id_idx = 10;
+            id = "3e0\0";
             break;
         case 0x5c0:
-            rates_hist_known_IDs[11][head].value = rates[i].value;
-            for (int j = 0; j < sample_size; j++)
-            {
-                hist[j] = rates_hist_known_IDs[11][j].value;
-            }
-            mean_rates_kmown_IDs[11].value = calculateMEAN(hist, sample_size);
-            sd_rates_known_IDs[11].value = calculateSD(hist, sample_size);
-
-            /*
-            mean_whole = mean_rates_kmown_IDs[11].value;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[11].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[11].value;
-            sd_thousandths = (sd_rates_known_IDs[11].value - sd_whole) * 1000;
-            xil_printf("Rate ID 5C0 = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n",(int)rates[11].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
-            */
-
-            if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[11].value + 3 * sd_rates_known_IDs[11].value)
-            {
-                xil_printf("----------------------Flooding detected on ID 5c0 --------------------------- \r\n");
-            }
-            else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[11].value - 3 * sd_rates_known_IDs[11].value)
-            {
-                xil_printf("----------------------Suspend detected on ID 5c0 --------------------------- \r\n");
-            }
+            id_idx = 4;
+            id = "5c0\0";
             break;
         default:
             break;
         }
+
+        if (id_idx == 0) {
+            continue;
+        }
+
+        rates_hist_known_IDs[id_idx][head].value = rates[i].value;
+        for (int j = 0; j < sample_size; j++)
+        {
+            hist[j] = rates_hist_known_IDs[id_idx][j].value;
+        }
+
+        mean_rates_kmown_IDs[id_idx].value = calculateMEAN(hist, sample_size);
+        sd_rates_known_IDs[id_idx].value = calculateSD(hist, sample_size);
+
+        if (show_rates){
+            mean_whole = mean_rates_kmown_IDs[id_idx].value;                             // recup partie entière
+            mean_thousandths = (mean_rates_kmown_IDs[id_idx].value - mean_whole) * 1000; // recup apres la virgule
+            sd_whole = sd_rates_known_IDs[id_idx].value;
+            sd_thousandths = (sd_rates_known_IDs[id_idx].value - sd_whole) * 1000;
+            xil_printf("Rate ID %s = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", id, (int)rates[id_idx].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
+        }
+
+        if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[id_idx].value + 3 * sd_rates_known_IDs[id_idx].value)
+        {
+            xil_printf("----------------------Flooding detected on ID %s --------------------------- \r\n", id);
+        }
+        else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[id_idx].value - 3 * sd_rates_known_IDs[id_idx].value)
+        {
+            xil_printf("----------------------Suspend detected on ID %s --------------------------- \r\n", id);
+        }
     }
 
-    if (isFull == false && head == (HISTORY_SIZE - 1))
+    if (!isFull && head == (HISTORY_SIZE - 1))
         isFull = true;
     head = (head + 1) % HISTORY_SIZE;
     return index;
