@@ -33,6 +33,12 @@
 
 #define HISTORY_SIZE 60
 
+enum AttackScenario {
+    NONE,
+    FLOODING,
+    SUSPEND,
+}
+
 struct Bandwidths{
     float rx_bndwth;
     float tx_bndwth;
@@ -41,7 +47,13 @@ struct Bandwidths{
 typedef struct {
     long unsigned int key;
     float value;
-} RateLUT; 
+} RateLUT;
+
+typedef struct {
+    AttackScenario attack;
+    float mean;
+    float sd;
+} RateAttackLUT;
 
 long unsigned int cansec_gettime();
 

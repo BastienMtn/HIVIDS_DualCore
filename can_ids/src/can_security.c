@@ -23,6 +23,7 @@ RateLUT rates[TABLE_SIZE];
 RateLUT mean_rates_kmown_IDs[12];
 RateLUT sd_rates_known_IDs[12];
 RateLUT rates_hist_known_IDs[12][HISTORY_SIZE];
+RateAttackLUT rates_attack[12];
 // Int to refresh the latency every 5 seconds only
 int latency_refresh_count;
 // Mutexes to protect the LUTs containing the sent and received frames
@@ -94,6 +95,21 @@ long unsigned int cansec_gettime()
     u32 local_time = atomic_load(&ddr_time);
     // xil_printf("Local time is %ld\r\n", local_time);
     return local_time;
+}
+
+char* get_attack_name(enum AttackScenario a)
+{
+    switch (a)
+    {
+        case NONE:
+            return "None\0";
+        case FLOODING:
+            return "Flooding\0";
+        case SUSPEND:
+            return "Suspend\0";
+        default:
+            return "\0";
+    }
 }
 
 void can_security_store(CANSecExtFrame frame)
@@ -321,11 +337,12 @@ int can_rate_msrmnt()
     };
     int sample_size = isFull ? HISTORY_SIZE : head;
     int mean_whole, mean_thousandths, sd_whole, sd_thousandths; // variables pour recuperer partie entiere et millième
+    float mean, sd;
     float hist[HISTORY_SIZE];
+    int id_idx = -1;
+    char* id[4];
     for (int i = 0; i < index; i++)
     {
-        int id_idx = 0;
-        char* id[4];
         bool show_rates = false;
         switch (rates[i].key)
         {
@@ -376,10 +393,11 @@ int can_rate_msrmnt()
             id = "5c0\0";
             break;
         default:
+            id_idx = -1;
             break;
         }
 
-        if (id_idx == 0) {
+        if (id_idx <= 0) {
             continue;
         }
 
@@ -388,25 +406,48 @@ int can_rate_msrmnt()
         {
             hist[j] = rates_hist_known_IDs[id_idx][j].value;
         }
-
-        mean_rates_kmown_IDs[id_idx].value = calculateMEAN(hist, sample_size);
-        sd_rates_known_IDs[id_idx].value = calculateSD(hist, sample_size);
+        mean = calculateMEAN(hist, sample_size);
+        sd = calculateSD(hist, sample_size);
 
         if (show_rates){
-            mean_whole = mean_rates_kmown_IDs[id_idx].value;                             // recup partie entière
+            mean_whole = mean;                             // recup partie entière
             mean_thousandths = (mean_rates_kmown_IDs[id_idx].value - mean_whole) * 1000; // recup apres la virgule
-            sd_whole = sd_rates_known_IDs[id_idx].value;
+            sd_whole = sd;
             sd_thousandths = (sd_rates_known_IDs[id_idx].value - sd_whole) * 1000;
             xil_printf("Rate ID %s = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", id, (int)rates[id_idx].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
         }
 
-        if ((head != 0 || isFull) && rates[i].value > mean_rates_kmown_IDs[id_idx].value + 3 * sd_rates_known_IDs[id_idx].value)
-        {
-            xil_printf("----------------------Flooding detected on ID %s --------------------------- \r\n", id);
+        bool has_data = (head != 0 || isFull);
+        if (rates_attack[id_idx].attack == NONE) {
+            if (has_data && rates[i].value > mean + 3 * sd)
+            {
+                rates_attack[id_idx].attack = FLOODING;
+                rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
+                rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
+                xil_printf("----------------------Flooding detected on ID %s --------------------------- \r\n", id);
+            }
+            else if (has_data && rates[i].value < mean - 3 * sd)
+            {
+                rates_attack[id_idx].attack = SUSPEND;
+                rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
+                rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
+                xil_printf("----------------------Suspend detected on ID %s --------------------------- \r\n", id);
+            }
+            mean_rates_kmown_IDs[id_idx].value = mean;
+            sd_rates_known_IDs[id_idx].value = sd;
+            return;
         }
-        else if ((head != 0 || isFull) && rates[i].value < mean_rates_kmown_IDs[id_idx].value - 3 * sd_rates_known_IDs[id_idx].value)
+        // Would be here if there is an attack on the ID
+        if (has_data && (rates[i].value < (rates_attack[id_idx].mean + 3 * rates_attack[id_idx].sd))
+             && (rates[i].value > (rates_attack[id_idx].mean - 3 * rates_attack[id_idx].sd)))
         {
-            xil_printf("----------------------Suspend detected on ID %s --------------------------- \r\n", id);
+            mean_rates_kmown_IDs[id_idx].value = rates_attack[id_idx].mean;
+            sd_rates_known_IDs[id_idx].value = rates_attack[id_idx].sd;
+            xil_printf("----------------------%s stopped on ID %s --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack) id);
+            rates_attack[id_idx].attack = NONE;
+        }else { // Continue the update of the mean and sd even?
+            mean_rates_kmown_IDs[id_idx].value = mean;
+            sd_rates_known_IDs[id_idx].value = sd;
         }
     }
 
