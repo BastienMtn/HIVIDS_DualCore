@@ -97,7 +97,7 @@ long unsigned int cansec_gettime()
     return local_time;
 }
 
-char* get_attack_name(enum AttackScenario a)
+char* get_attack_name(AttackScenario a)
 {
     switch (a)
     {
@@ -340,7 +340,7 @@ int can_rate_msrmnt()
     float mean, sd;
     float hist[HISTORY_SIZE];
     int id_idx = -1;
-    char* id[4];
+    int id;
     for (int i = 0; i < index; i++)
     {
         bool show_rates = false;
@@ -348,49 +348,49 @@ int can_rate_msrmnt()
         {
         case 0x110:
             id_idx = 1;
-            id = "110\0";
+            id = 0x110;
             break;
         case 0x120:
             id_idx = 2;
-            id = "120\0";
+            id = 0x120;
             break;
         case 0x180:
             id_idx = 3;
-            id = "180\0";
+            id = 0x180;
             show_rates = true;
             break;
         case 0x1a0:
             id_idx = 4;
-            id = "1a0\0";
+            id = 0x1a0;
             break;
         case 0x1c0:
             id_idx = 5;
-            id = "1c0\0";
+            id = 0x1c0;
             show_rates = true;
             break;
         case 0x280:
             id_idx = 6;
-            id = "280\0";
+            id = 0x280;
             break;
         case 0x2e0:
             id_idx = 7;
-            id = "2e0\0";
+            id = 0x2e0;
             break;
         case 0x300:
             id_idx = 8;
-            id = "300\0";
+            id = 0x300;
             break;
         case 0x318:
             id_idx = 9;
-            id = "318\0";
+            id = 0x318;
             break;
         case 0x3e0:
             id_idx = 10;
-            id = "3e0\0";
+            id = 0x3e0;
             break;
         case 0x5c0:
             id_idx = 4;
-            id = "5c0\0";
+            id = 0x5c0;
             break;
         default:
             id_idx = -1;
@@ -414,7 +414,7 @@ int can_rate_msrmnt()
             mean_thousandths = (mean_rates_kmown_IDs[id_idx].value - mean_whole) * 1000; // recup apres la virgule
             sd_whole = sd;
             sd_thousandths = (sd_rates_known_IDs[id_idx].value - sd_whole) * 1000;
-            xil_printf("Rate ID %s = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", id, (int)rates[id_idx].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
+            xil_printf("Rate ID %x = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", id, (int)rates[id_idx].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
         }
 
         bool has_data = (head != 0 || isFull);
@@ -424,14 +424,14 @@ int can_rate_msrmnt()
                 rates_attack[id_idx].attack = FLOODING;
                 rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
                 rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
-                xil_printf("----------------------Flooding detected on ID %s --------------------------- \r\n", id);
+                xil_printf("----------------------Flooding detected on ID %x --------------------------- \r\n", id);
             }
             else if (has_data && rates[i].value < mean - 3 * sd)
             {
                 rates_attack[id_idx].attack = SUSPEND;
                 rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
                 rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
-                xil_printf("----------------------Suspend detected on ID %s --------------------------- \r\n", id);
+                xil_printf("----------------------Suspend detected on ID %x --------------------------- \r\n", id);
             }
             mean_rates_kmown_IDs[id_idx].value = mean;
             sd_rates_known_IDs[id_idx].value = sd;
@@ -443,7 +443,7 @@ int can_rate_msrmnt()
         {
             mean_rates_kmown_IDs[id_idx].value = rates_attack[id_idx].mean;
             sd_rates_known_IDs[id_idx].value = rates_attack[id_idx].sd;
-            xil_printf("----------------------%s stopped on ID %s --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack), id);
+            xil_printf("----------------------%s stopped on ID %x --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack), id);
             rates_attack[id_idx].attack = NONE;
         }else { // Continue the update of the mean and sd even?
             mean_rates_kmown_IDs[id_idx].value = mean;
