@@ -33,11 +33,11 @@
 
 #define HISTORY_SIZE 60
 
-enum AttackScenario {
+typedef enum{
     NONE,
     FLOODING,
     SUSPEND,
-}
+}AttackScenario;
 
 struct Bandwidths{
     float rx_bndwth;

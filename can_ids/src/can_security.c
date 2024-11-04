@@ -443,7 +443,7 @@ int can_rate_msrmnt()
         {
             mean_rates_kmown_IDs[id_idx].value = rates_attack[id_idx].mean;
             sd_rates_known_IDs[id_idx].value = rates_attack[id_idx].sd;
-            xil_printf("----------------------%s stopped on ID %s --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack) id);
+            xil_printf("----------------------%s stopped on ID %s --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack), id);
             rates_attack[id_idx].attack = NONE;
         }else { // Continue the update of the mean and sd even?
             mean_rates_kmown_IDs[id_idx].value = mean;
