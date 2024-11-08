@@ -67,7 +67,7 @@ int can_rate_msrmnt();
 
 void timestamp_check();
 
-bool DOS_detection();
+bool DOS_detection(struct Bandwidths bndwth);
 
 int can_security_init();
 

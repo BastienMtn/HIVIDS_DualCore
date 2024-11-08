@@ -73,12 +73,6 @@ static void secTask(void *pvParameters)
             latency_refresh_count = 0;
         }
         */
-
-        // ----- ATTACK DETECTION PART -----
-        if (DOS_detection())
-        {
-            xil_printf("----------------------A DOS attack has been detected--------------------------- \r\n");
-        }
     }
 }
 
@@ -155,7 +149,7 @@ void can_security_store(CANSecExtFrame frame)
 
 // TODO: DOS Detection
 // Mean, standard deviation
-bool DOS_detection()
+bool DOS_detection(struct Bandwidths bndwth)
 {
     /*if(bndwth.rx_bndwth > rx_bd_mean*5){
         return true;
@@ -195,6 +189,7 @@ struct Bandwidths bandwidth_measurement()
     static int index = 0;
     static bool isFull = false;
     static CAN_Message data[TABLE_SIZE];
+    struct Bandwidths resp;
     int my_time = cansec_gettime();
     // data = malloc(TABLE_SIZE*sizeof(CAN_Message));
     CAN_Circ_LookupTable* rx_lut = &rx_lut1;
@@ -209,7 +204,7 @@ struct Bandwidths bandwidth_measurement()
         total_datalength += data[i].dlc;
     };
     // xil_printf("RX TOTAL DATALENGTH = %d \r\n", total_datalength);
-    rx_bndw[index] = (float)total_datalength * 1000 / CANSEC_BNDW_SAMPLE_SIZE;
+    resp.rx_bndwth = (float)total_datalength * 1000 / CANSEC_BNDW_SAMPLE_SIZE;
 
     total_datalength = 0;
     // sys_mutex_lock(&tx_lut_mut);
@@ -221,11 +216,7 @@ struct Bandwidths bandwidth_measurement()
         total_datalength += data[i].dlc;
     };
     // xil_printf("TX TOTAL DATALENGTH = %d \r\n", total_datalength);
-    tx_bndw[index] = (float)total_datalength * 1000 / CANSEC_BNDW_SAMPLE_SIZE;
-    struct Bandwidths resp;
-    resp.rx_bndwth = rx_bndw[index];
-    resp.tx_bndwth = tx_bndw[index];
-
+    resp.tx_bndwth = (float)total_datalength * 1000 / CANSEC_BNDW_SAMPLE_SIZE;
     int size = index;
     if (isFull)
     {
@@ -235,9 +226,21 @@ struct Bandwidths bandwidth_measurement()
     rx_bd_var = calculateVAR(rx_bndw, size);
     rx_bd_sd = calculateSD(rx_bndw, size);
 
-    if (!isFull && index == (HISTORY_SIZE - 1))
+    if (!isFull && index == (HISTORY_SIZE - 1)){
         isFull = true;
+        xil_printf("----------------- iFull True, Bndwdth detection starts now ------------------------\r\n");
+    }
     index = (index + 1) % HISTORY_SIZE;
+            // ----- ATTACK DETECTION PART -----
+    if (isFull && DOS_detection(resp))
+    {
+            xil_printf("----------------------A DOS attack has been detected--------------------------- \r\n");
+            rx_bndw[index] = rx_bndw[index-1];
+            tx_bndw[index] = tx_bndw[index-1];
+    }else{
+            rx_bndw[index] = resp.rx_bndwth;
+            tx_bndw[index] = resp.tx_bndwth;
+    }
     return resp;
 }
 
