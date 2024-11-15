@@ -29,13 +29,6 @@ void can_circ_lut_add(CAN_Circ_LookupTable *table, const long unsigned int *key,
         table->entries[index].value.data[i] = msg->data[i];
     }
 
-    // table->entries[index].value = *value;
-    /*
-    memcpy(&table->entries[index].key, key, sizeof(long int));
-    memcpy(&table->entries[index].value, value, sizeof(struct CAN_Message));
-    */
-
-
     if (table->size < TABLE_SIZE) {
         table->size++;
     } else {

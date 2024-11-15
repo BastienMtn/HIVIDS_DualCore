@@ -28,9 +28,6 @@ RateAttackLUT rates_attack[12];
 #define K_RATE 3
 // Int to refresh the latency every 5 seconds only
 int latency_refresh_count;
-// Mutexes to protect the LUTs containing the sent and received frames
-// sys_mutex_t rx_lut_mut;
-// sys_mutex_t tx_lut_mut;
 
 
 static void secTask(void *pvParameters)
@@ -147,27 +144,15 @@ void can_security_store(CANSecExtFrame frame)
     }
 }
 
-// TODO: DOS Detection
-// Mean, standard deviation
 bool DOS_detection(struct Bandwidths bndwth)
 {
-    /*if(bndwth.rx_bndwth > rx_bd_mean*5){
-        return true;
-    }*/
+    // Mean, standard deviation
     return bndwth.rx_bndwth > rx_bd_mean + 3 * rx_bd_sd;
 }
 
-// TODO: Data consistency check
-// If a node sends a speed of 100kmh, check with the other nodes if its realistic (for example different wheels)
-// Also work for oss/iss, app and rpm, etc
-
 // TODO: Period deviation measurement for each known ID
 
-// TODO: Node Isolation mechanism ?
-
-// TODO: Spoof detection??
-
-// TODO: Flood detection (needs a way to store the rates of the knowm IDs)
+// TODO: Flood detection : Not used anywhere
 bool flood_detection()
 {
     bool resp = false;
@@ -191,7 +176,6 @@ struct Bandwidths bandwidth_measurement()
     static CAN_Message data[TABLE_SIZE];
     struct Bandwidths resp;
     int my_time = cansec_gettime();
-    // data = malloc(TABLE_SIZE*sizeof(CAN_Message));
     CAN_Circ_LookupTable* rx_lut = &rx_lut1;
     if (writeRXLut1)
     {
@@ -470,12 +454,6 @@ int can_rate_msrmnt()
     head = (head + 1) % HISTORY_SIZE;
     return index;
 }
-
-// TODO: Implement timestamp check ?
-// If we want to be able to detect spoofing, we must be able to detect 10-15ns derivation.
-// To do this, we need to add an hw timer in vivado to get the precise timestamps
-// Implementation details are yet to be found
-void timestamp_check() {};
 
 // Function to init all the security functions of the CANBus
 int can_security_init()
