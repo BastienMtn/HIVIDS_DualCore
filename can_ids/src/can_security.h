@@ -45,7 +45,7 @@ typedef struct{
 } Bandwidths;
 
 typedef struct {
-    long unsigned int key;
+    long unsigned int id;
     float value;
 } RateLUT;
 

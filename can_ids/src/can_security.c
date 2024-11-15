@@ -20,7 +20,7 @@ static Bandwidths bndwth;
 static float rx_bd_mean = 0.0, rx_bd_sd = 0.0, rx_bd_var = 0.0;
 // Rates for each CAN ID
 RateLUT rates[TABLE_SIZE];
-RateLUT mean_rates_kmown_IDs[12];
+RateLUT mean_rates_known_IDs[12];
 RateLUT sd_rates_known_IDs[12];
 RateLUT rates_hist_known_IDs[12][HISTORY_SIZE];
 RateAttackLUT rates_attack[12];
@@ -220,14 +220,14 @@ int can_rate_msrmnt()
     for (int i = 0; i < TABLE_SIZE; i++)
     {
         rates[i].value = 0;
-        rates[i].key = 0;
+        rates[i].id = 0;
     }
     for (int i = 0; i < count; i++)
     {
         for (int j = 0; j < index; j++)
         {
-            if ((data[i].ide == 0 && rates[j].key == data[i].id) || // Normal ID check
-                (data[i].ide != 0 && (rates[j].key == (data[i].id << 18) + data[i].eid))) // Extended ID check
+            if ((data[i].ide == 0 && rates[j].id == data[i].id) || // Normal ID check
+                (data[i].ide != 0 && (rates[j].id == (data[i].id << 18) + data[i].eid))) // Extended ID check
             {
                 rates[j].value++;
                 found = true;
@@ -241,13 +241,13 @@ int can_rate_msrmnt()
         }
         if (data[i].ide == 0)
         {
-            rates[index].key = (long unsigned int)(data[i].id);
+            rates[index].id = (long unsigned int)(data[i].id);
         }
         else
         {
-            rates[index].key = (data[i].id << 18) + data[i].eid;
+            rates[index].id = (data[i].id << 18) + data[i].eid;
         }
-        // rates[index].key = (data[i].eid == 0 ? data[i].id : (data[i].id << 18) + data[i].eid);
+        // rates[index].id = (data[i].eid == 0 ? data[i].id : (data[i].id << 18) + data[i].eid);
         rates[index].value = 1;
         index++;
     };
@@ -261,8 +261,8 @@ int can_rate_msrmnt()
     for (int i = 0; i < index; i++)
     {
         bool show_rates = false;
-        //xil_printf("Rates[%d].key = %x \r\n", i, rates[i].key);
-        switch (rates[i].key)
+        //xil_printf("Rates[%d].id = %x \r\n", i, rates[i].id);
+        switch (rates[i].id)
         {
         case 0x110:
             id_idx = 1;
@@ -328,7 +328,7 @@ int can_rate_msrmnt()
 
         if (show_rates){
             mean_whole = mean;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[id_idx].value - mean_whole) * 1000; // recup apres la virgule
+            mean_thousandths = (mean_rates_known_IDs[id_idx].value - mean_whole) * 1000; // recup apres la virgule
             sd_whole = sd;
             sd_thousandths = (sd_rates_known_IDs[id_idx].value - sd_whole) * 1000;
             xil_printf("Rate ID %x = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", id, (int)rates[id_idx].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
@@ -338,18 +338,18 @@ int can_rate_msrmnt()
             if (isFull && rates[i].value > mean + K_RATE * sd)
             {
                 rates_attack[id_idx].attack = FLOODING;
-                rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
+                rates_attack[id_idx].mean = mean_rates_known_IDs[id_idx].value;
                 rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
                 xil_printf("----------------------Flooding detected on ID %x --------------------------- \r\n", id);
             }
             else if (isFull && rates[i].value < mean - K_RATE * sd)
             {
                 rates_attack[id_idx].attack = SUSPEND;
-                rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
+                rates_attack[id_idx].mean = mean_rates_known_IDs[id_idx].value;
                 rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
                 xil_printf("----------------------Suspend detected on ID %x --------------------------- \r\n", id);
             }
-            mean_rates_kmown_IDs[id_idx].value = mean;
+            mean_rates_known_IDs[id_idx].value = mean;
             sd_rates_known_IDs[id_idx].value = sd;
             continue;
         }
@@ -357,7 +357,7 @@ int can_rate_msrmnt()
         if (isFull && (rates[i].value < (rates_attack[id_idx].mean + K_RATE * rates_attack[id_idx].sd))
              && (rates[i].value > (rates_attack[id_idx].mean - K_RATE * rates_attack[id_idx].sd)))
         {
-            mean_rates_kmown_IDs[id_idx].value = mean;
+            mean_rates_known_IDs[id_idx].value = mean;
             sd_rates_known_IDs[id_idx].value = sd;
             xil_printf("----------------------%s stopped on ID %x --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack), id);
             rates_attack[id_idx].attack = NONE;
@@ -367,7 +367,7 @@ int can_rate_msrmnt()
             }else{
                 xil_printf("----------------------Suspend detected on ID %x --------------------------- \r\n", id);
             }
-            mean_rates_kmown_IDs[id_idx].value = rates_attack[id_idx].mean;
+            mean_rates_known_IDs[id_idx].value = rates_attack[id_idx].mean;
             sd_rates_known_IDs[id_idx].value = rates_attack[id_idx].sd;
         }
     }
@@ -402,21 +402,38 @@ int can_security_init()
         tx_bndw[i] = 0.0;
     }
     latency_refresh_count = 0;
-    mean_rates_kmown_IDs[0].key = 0x100;
-    mean_rates_kmown_IDs[1].key = 0x110;
-    mean_rates_kmown_IDs[2].key = 0x120;
-    mean_rates_kmown_IDs[3].key = 0x180;
-    mean_rates_kmown_IDs[4].key = 0x1a0;
-    mean_rates_kmown_IDs[5].key = 0x1c0;
-    mean_rates_kmown_IDs[6].key = 0x280;
-    mean_rates_kmown_IDs[7].key = 0x2e0;
-    mean_rates_kmown_IDs[8].key = 0x300;
-    mean_rates_kmown_IDs[9].key = 0x318;
-    mean_rates_kmown_IDs[10].key = 0x3e0;
-    mean_rates_kmown_IDs[11].key = 0x5c0;
+    mean_rates_known_IDs[0].id = 0x100;
+    mean_rates_known_IDs[1].id = 0x110;
+    mean_rates_known_IDs[2].id = 0x120;
+    mean_rates_known_IDs[3].id = 0x180;
+    mean_rates_known_IDs[4].id = 0x1a0;
+    mean_rates_known_IDs[5].id = 0x1c0;
+    mean_rates_known_IDs[6].id = 0x280;
+    mean_rates_known_IDs[7].id = 0x2e0;
+    mean_rates_known_IDs[8].id = 0x300;
+    mean_rates_known_IDs[9].id = 0x318;
+    mean_rates_known_IDs[10].id = 0x3e0;
+    mean_rates_known_IDs[11].id = 0x5c0;
     for (int i = 0; i < 12; i++)
     {
         mean_rates_kmown_IDs[i].value = 0.0;
+        mean_rates_known_IDs[i].value = 0.0;
+    }
+    sd_rates_known_IDs[0].id = 0x100;
+    sd_rates_known_IDs[1].id = 0x110;
+    sd_rates_known_IDs[2].id = 0x120;
+    sd_rates_known_IDs[3].id = 0x180;
+    sd_rates_known_IDs[4].id = 0x1a0;
+    sd_rates_known_IDs[5].id = 0x1c0;
+    sd_rates_known_IDs[6].id = 0x280;
+    sd_rates_known_IDs[7].id = 0x2e0;
+    sd_rates_known_IDs[8].id = 0x300;
+    sd_rates_known_IDs[9].id = 0x318;
+    sd_rates_known_IDs[10].id = 0x3e0;
+    sd_rates_known_IDs[11].id = 0x5c0;
+    for (int i = 0; i < 12; i++)
+    {
+        sd_rates_known_IDs[i].value = 0.0;
     }
 
     xTaskCreate(secTask, (const char *)"CANSecTask",
