@@ -107,8 +107,8 @@ char* get_attack_name(AttackScenario a)
 
 void can_security_store(CANSecExtFrame frame)
 {
-    // TODO: Add info on whether the frame has passed, been dropped, blocked, etc ??
-    checkWithRules(frame);
+    frame.errors = checkWithRules(frame);
+    frame.ok = frame.errors.count > 0;
     if (frame.dir == RECEIVE)
     {
         xSemaphoreTake(rx_lut_write, portMAX_DELAY);

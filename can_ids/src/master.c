@@ -222,6 +222,7 @@ static void saveTask(void *pvParameters)
          // xil_printf("frame received...");
          frame.timestp = data.timestp;
          frame.msg = data.msg;
+         frame.ok = true;
          can_security_store(frame);
          SDPrintMessage(sdBuffer, data.msg, data.timestp, 0);
          // xil_printf("Frame printed \r\n");

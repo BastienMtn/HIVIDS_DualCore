@@ -66,6 +66,8 @@ typedef struct {
     long unsigned int timestp;
     Direction dir;
     CAN_Message msg;
+	bool ok;
+    Error errors;
 } CANSecExtFrame;
 
 // Error struct to store matching rule line
