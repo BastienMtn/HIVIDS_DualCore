@@ -22,62 +22,62 @@
 
 #define DELIMITER "-|"
 
-enum Action{
+typedef enum{
     ALERT,
     BLOCK,
     DROP,
     LOG,
     PASS,
     REWRITE
-};
+} Action;
 
-enum Direction{
+typedef enum{
     RECEIVE,
     TRANSMIT,
     BIDIRECTIONAL
-};
+} Direction;
 
-enum OptionType{
+typedef enum{
     UpLimit,
     DownLimit,
     Format,
     Length,
     Message,
     Contains
-};
+} OptionType;
 
 typedef struct{
-    enum OptionType type;
+    OptionType type;
     char* value;
-}CANSecOption;
+} CANSecOption;
 
 typedef struct{
-    enum Action action;
+    Action action;
     bool extended;
     long unsigned int id;
     bool isRequest;
-    enum Direction dir;
+    Direction dir;
     CANSecOption options[10];
     int num_options;
 }CANRule;
 
 // Struct for CAN Frame, its timestmp and its direction to check for security
-typedef struct CANSecExtFrame {
+typedef struct {
     long unsigned int timestp;
-    enum Direction dir;
+    Direction dir;
     CAN_Message msg;
 } CANSecExtFrame;
 
-// Error struct to store matching rule lines
-struct Error {
+// Error struct to store matching rule line
+typedef struct {
     char matchingRules[MAX_RULES];
     int count;
-};
+} Error;
 
 // Function to compare HTTP frame ID with Snort-like rule
 bool applyRule(CANSecExtFrame frame, CANRule rule);
 
-struct Error checkWithRules(CANSecExtFrame frame);
+Error checkWithRules(CANSecExtFrame frame);
 
 void splitRuleValue(char* value, char* delimiter, int64_t* options);
 

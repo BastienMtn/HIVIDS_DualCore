@@ -16,7 +16,7 @@ static SemaphoreHandle_t rx_lut_write;
 CAN_Circ_LookupTable tx_lut;
 // Global floats containing the bandwidths, and the sending latency for IDs 0,512,1024,1536,2048
 float rx_bndw[HISTORY_SIZE], tx_bndw[HISTORY_SIZE], tx_latency[5];
-static struct Bandwidths bndwth;
+static Bandwidths bndwth;
 static float rx_bd_mean = 0.0, rx_bd_sd = 0.0, rx_bd_var = 0.0;
 // Rates for each CAN ID
 RateLUT rates[TABLE_SIZE];
@@ -144,7 +144,7 @@ void can_security_store(CANSecExtFrame frame)
     }
 }
 
-bool DOS_detection(struct Bandwidths bndwth)
+bool DOS_detection(Bandwidths bndwth)
 {
     // Mean, standard deviation
     return bndwth.rx_bndwth > rx_bd_mean + 3 * rx_bd_sd;
@@ -168,13 +168,13 @@ bool flood_detection()
 }
 
 // ! The bandwidth only takes the real data part of the frame into account, since the rest depends on stuff bits etc !
-struct Bandwidths bandwidth_measurement()
+Bandwidths bandwidth_measurement()
 {
     int count = 0, total_datalength = 0;
     static int index = 0;
     static bool isFull = false;
     static CAN_Message data[TABLE_SIZE];
-    struct Bandwidths resp;
+    Bandwidths resp;
     int my_time = cansec_gettime();
     CAN_Circ_LookupTable* rx_lut = &rx_lut1;
     if (writeRXLut1)

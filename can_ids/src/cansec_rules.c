@@ -85,11 +85,11 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
 }
 
 // Function to check HTTP frame against rule table and store matching lines
-struct Error checkWithRules(CANSecExtFrame frame)
+Error checkWithRules(CANSecExtFrame frame)
 {
     //xil_printf("Checking with rules\r\n");
     // Initialize error struct
-    static struct Error error;
+    static Error error;
     error.count = 0;
 
     // Check if rule table is initialized

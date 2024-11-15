@@ -37,12 +37,12 @@ typedef enum{
     NONE,
     FLOODING,
     SUSPEND,
-}AttackScenario;
+} AttackScenario;
 
-struct Bandwidths{
+typedef struct{
     float rx_bndwth;
     float tx_bndwth;
-};
+} Bandwidths;
 
 typedef struct {
     long unsigned int key;
@@ -59,7 +59,7 @@ long unsigned int cansec_gettime();
 
 void can_security_store(CANSecExtFrame frame);
 
-struct Bandwidths bandwidth_measurement();
+Bandwidths bandwidth_measurement();
 
 void latency_send_measurement();
 
@@ -67,7 +67,7 @@ int can_rate_msrmnt();
 
 void timestamp_check();
 
-bool DOS_detection(struct Bandwidths bndwth);
+bool DOS_detection(Bandwidths bndwth);
 
 int can_security_init();
 
