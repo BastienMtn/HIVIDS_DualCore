@@ -24,6 +24,8 @@ RateLUT mean_rates_known_IDs[12];
 RateLUT sd_rates_known_IDs[12];
 RateLUT rates_hist_known_IDs[12][HISTORY_SIZE];
 RateAttackLUT rates_attack[12];
+//Period
+int last_packet_times[12];
 // Threshold k for rate measurement
 #define K_RATE 3
 // Int to refresh the latency every 5 seconds only
@@ -135,9 +137,6 @@ bool DOS_detection(Bandwidths bndwth)
     return bndwth.rx_bndwth > rx_bd_mean + 3 * rx_bd_sd;
 }
 
-// TODO: Period deviation measurement for each known ID
-
-
 // ! The bandwidth only takes the real data part of the frame into account, since the rest depends on stuff bits etc !
 Bandwidths bandwidth_measurement()
 {
@@ -221,7 +220,10 @@ int can_rate_msrmnt()
     {
         rates[i].value = 0;
         rates[i].id = 0;
+        rates[i].best_period = INT_MAX;
+        rates[i].worst_period = 0;
     }
+    int current_times[12];
     for (int i = 0; i < count; i++)
     {
         for (int j = 0; j < index; j++)
@@ -230,6 +232,17 @@ int can_rate_msrmnt()
                 (data[i].ide != 0 && (rates[j].id == (data[i].id << 18) + data[i].eid))) // Extended ID check
             {
                 rates[j].value++;
+                current_times[i] = cansec_gettime();
+                int period = current - last_packet_times[i];
+                last_packet_times[i] = current;
+                if (period < rates[j].best_period)
+                {
+                    rates[j].best_period = period;
+                }
+                if (period > rates[j].worst_period)
+                {
+                    rates[j].worst_period = period;
+                }
                 found = true;
                 break;
             }
@@ -255,6 +268,7 @@ int can_rate_msrmnt()
     int mean_whole, mean_thousandths, sd_whole, sd_thousandths; // variables pour recuperer partie entiere et millième
     float mean, sd;
     float hist[HISTORY_SIZE];
+    int period_hist[HISTORY_SIZE];
     int id_idx = -1;
     int id;
     //xil_printf("index=%d\r\n",index);
@@ -319,12 +333,29 @@ int can_rate_msrmnt()
         }
 
         rates_hist_known_IDs[id_idx][head].value = rates[i].value;
+        rates_hist_known_IDs[id_idx][head].best_period = rates[i].best_period;
+        rates_hist_known_IDs[id_idx][head].worst_period = rates[i].worst_period;
         for (int j = 0; j < sample_size; j++)
         {
             hist[j] = rates_hist_known_IDs[id_idx][j].value;
         }
         mean = calculateMEAN(hist, sample_size);
         sd = calculateSD(hist, sample_size);
+
+        for (int j = 0; j < sample_size; j++)
+        {
+            period_hist[j] = (float)rates_hist_known_IDs[id_idx][j].best_period;
+        }
+        mean_rates_known_IDs[i].best_period = calculateMEAN(period_hist, sample_size);
+        sd_rates_known_IDs[i].worst_period = calculateSD(period_hist, sample_size);
+
+        for (int j = 0; j < sample_size; j++)
+        {
+            period_hist[j] = (float)rates_hist_known_IDs[id_idx][j].worst_period;
+        }
+        mean_rates_known_IDs[i].worst_period = calculateMEAN(period_hist, sample_size);
+        sd_rates_known_IDs[i].worst_period = calculateSD(period_hist, sample_size);
+
 
         if (show_rates){
             mean_whole = mean;                             // recup partie entière
@@ -416,8 +447,9 @@ int can_security_init()
     mean_rates_known_IDs[11].id = 0x5c0;
     for (int i = 0; i < 12; i++)
     {
-        mean_rates_kmown_IDs[i].value = 0.0;
         mean_rates_known_IDs[i].value = 0.0;
+        mean_rates_known_IDs[i].best_period = 0;
+        mean_rates_known_IDs[i].worst_period = 0;
     }
     sd_rates_known_IDs[0].id = 0x100;
     sd_rates_known_IDs[1].id = 0x110;
@@ -434,6 +466,8 @@ int can_security_init()
     for (int i = 0; i < 12; i++)
     {
         sd_rates_known_IDs[i].value = 0.0;
+        sd_rates_known_IDs[i].best_period = 0;
+        sd_rates_known_IDs[i].worst_period = 0;
     }
 
     xTaskCreate(secTask, (const char *)"CANSecTask",

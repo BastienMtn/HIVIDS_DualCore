@@ -19,6 +19,7 @@
 #include "ddr_commons.h"
 #include "cansec_rules.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,8 @@ typedef struct{
 typedef struct {
     long unsigned int id;
     float value;
+    int best_period;
+    int worst_period;
 } RateLUT;
 
 typedef struct {
