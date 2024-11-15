@@ -55,21 +55,6 @@ static void secTask(void *pvParameters)
 
         // ----- RATE MEASUREMENT PART -----
         int rate_size = can_rate_msrmnt();
-
-        // ----- LATENCY MEASUREMENT PART -----
-        // TODO Find a replacement for this or delete it
-        /*
-        latency_refresh_count++;
-        if (latency_refresh_count == 10)
-        {
-            latency_send_measurement();
-            for (int i = 0; i < 5; i++)
-            {
-                xil_printf("TX Latency %d = %d \r\n", i, tx_latency[i]);
-            }
-            latency_refresh_count = 0;
-        }
-        */
     }
 }
 
@@ -152,20 +137,6 @@ bool DOS_detection(Bandwidths bndwth)
 
 // TODO: Period deviation measurement for each known ID
 
-// TODO: Flood detection : Not used anywhere
-bool flood_detection()
-{
-    bool resp = false;
-    for (int i = 0; i < TABLE_SIZE; i++)
-    {
-        if (rates[i].value > 1)
-        {
-            xil_printf("----------------------Flooding detected on ID %x--------------------------- \r\n", rates[i].key);
-            resp = true;
-        }
-    }
-    return resp;
-}
 
 // ! The bandwidth only takes the real data part of the frame into account, since the rest depends on stuff bits etc !
 Bandwidths bandwidth_measurement()
@@ -227,51 +198,6 @@ Bandwidths bandwidth_measurement()
     }
     return resp;
 }
-
-// Latency measurement function, a bit useless for now as the timing isnt precise enough to measure the latency in ms or ns
-/*
-void latency_send_measurement()
-{
-    CAN_Message msg;
-    msg.id = 0;
-    msg.dlc = 6;
-    msg.eid = 0x15a;
-    msg.rtr = 0;
-    msg.ide = 0;
-    msg.data[0] = 0x01;
-    msg.data[1] = 0x02;
-    msg.data[2] = 0x04;
-    msg.data[3] = 0x08;
-    msg.data[4] = 0x10;
-    msg.data[5] = 0x20;
-    msg.data[6] = 0x40;
-    msg.data[7] = 0x80;
-
-    long unsigned int t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[0] = cansec_gettime() - t_init;
-
-    msg.id = 512;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[1] = cansec_gettime() - t_init;
-
-    msg.id = 1024;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[2] = cansec_gettime() - t_init;
-
-    msg.id = 1536;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[3] = cansec_gettime() - t_init;
-
-    msg.id = 2047;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[4] = cansec_gettime() - t_init;
-}
-*/
 
 // Rate measurement par ID
 int can_rate_msrmnt()
