@@ -16,22 +16,21 @@ static SemaphoreHandle_t rx_lut_write;
 CAN_Circ_LookupTable tx_lut;
 // Global floats containing the bandwidths, and the sending latency for IDs 0,512,1024,1536,2048
 float rx_bndw[HISTORY_SIZE], tx_bndw[HISTORY_SIZE], tx_latency[5];
-static struct Bandwidths bndwth;
+static Bandwidths bndwth;
 static float rx_bd_mean = 0.0, rx_bd_sd = 0.0, rx_bd_var = 0.0;
 // Rates for each CAN ID
 RateLUT rates[TABLE_SIZE];
-RateLUT mean_rates_kmown_IDs[12];
+RateLUT mean_rates_known_IDs[12];
 RateLUT sd_rates_known_IDs[12];
 RateLUT rates_hist_known_IDs[12][HISTORY_SIZE];
 RateAttackLUT rates_attack[12];
+//Period
+int last_packet_times[12];
 // Threshold k for rate measurement
 #define K_RATE 4
 #define K_DOS 5
 // Int to refresh the latency every 5 seconds only
 int latency_refresh_count;
-// Mutexes to protect the LUTs containing the sent and received frames
-// sys_mutex_t rx_lut_mut;
-// sys_mutex_t tx_lut_mut;
 
 
 static void secTask(void *pvParameters)
@@ -59,21 +58,6 @@ static void secTask(void *pvParameters)
 
         // ----- RATE MEASUREMENT PART -----
         int rate_size = can_rate_msrmnt();
-
-        // ----- LATENCY MEASUREMENT PART -----
-        // TODO Find a replacement for this or delete it
-        /*
-        latency_refresh_count++;
-        if (latency_refresh_count == 10)
-        {
-            latency_send_measurement();
-            for (int i = 0; i < 5; i++)
-            {
-                xil_printf("TX Latency %d = %d \r\n", i, tx_latency[i]);
-            }
-            latency_refresh_count = 0;
-        }
-        */
     }
 }
 
@@ -111,8 +95,8 @@ char* get_attack_name(AttackScenario a)
 
 void can_security_store(CANSecExtFrame frame)
 {
-    // TODO: Add info on whether the frame has passed, been dropped, blocked, etc ??
-    checkWithRules(frame);
+    frame.errors = checkWithRules(frame);
+    frame.ok = frame.errors.count > 0;
     if (frame.dir == RECEIVE)
     {
         xSemaphoreTake(rx_lut_write, portMAX_DELAY);
@@ -148,51 +132,20 @@ void can_security_store(CANSecExtFrame frame)
     }
 }
 
-// TODO: DOS Detection
-// Mean, standard deviation
-bool DOS_detection(struct Bandwidths bndwth)
+bool DOS_detection(Bandwidths bndwth)
 {
-    /*if(bndwth.rx_bndwth > rx_bd_mean*5){
-        return true;
-    }*/
     return bndwth.rx_bndwth > (rx_bd_mean + K_DOS * rx_bd_sd);
 }
 
-// TODO: Data consistency check
-// If a node sends a speed of 100kmh, check with the other nodes if its realistic (for example different wheels)
-// Also work for oss/iss, app and rpm, etc
-
-// TODO: Period deviation measurement for each known ID
-
-// TODO: Node Isolation mechanism ?
-
-// TODO: Spoof detection??
-
-// TODO: Flood detection (needs a way to store the rates of the knowm IDs)
-bool flood_detection()
-{
-    bool resp = false;
-    for (int i = 0; i < TABLE_SIZE; i++)
-    {
-        if (rates[i].value > 1)
-        {
-            xil_printf("----------------------Flooding detected on ID %x--------------------------- \r\n", rates[i].key);
-            resp = true;
-        }
-    }
-    return resp;
-}
-
 // ! The bandwidth only takes the real data part of the frame into account, since the rest depends on stuff bits etc !
-struct Bandwidths bandwidth_measurement()
+Bandwidths bandwidth_measurement()
 {
     int count = 0, total_datalength = 0;
     static int index = 0;
     static bool isFull = false;
     static CAN_Message data[TABLE_SIZE];
-    struct Bandwidths resp;
+    Bandwidths resp;
     int my_time = cansec_gettime();
-    // data = malloc(TABLE_SIZE*sizeof(CAN_Message));
     CAN_Circ_LookupTable* rx_lut = &rx_lut1;
     if (writeRXLut1)
     {
@@ -250,51 +203,6 @@ struct Bandwidths bandwidth_measurement()
     return resp;
 }
 
-// Latency measurement function, a bit useless for now as the timing isnt precise enough to measure the latency in ms or ns
-/*
-void latency_send_measurement()
-{
-    CAN_Message msg;
-    msg.id = 0;
-    msg.dlc = 6;
-    msg.eid = 0x15a;
-    msg.rtr = 0;
-    msg.ide = 0;
-    msg.data[0] = 0x01;
-    msg.data[1] = 0x02;
-    msg.data[2] = 0x04;
-    msg.data[3] = 0x08;
-    msg.data[4] = 0x10;
-    msg.data[5] = 0x20;
-    msg.data[6] = 0x40;
-    msg.data[7] = 0x80;
-
-    long unsigned int t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[0] = cansec_gettime() - t_init;
-
-    msg.id = 512;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[1] = cansec_gettime() - t_init;
-
-    msg.id = 1024;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[2] = cansec_gettime() - t_init;
-
-    msg.id = 1536;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[3] = cansec_gettime() - t_init;
-
-    msg.id = 2047;
-    t_init = cansec_gettime();
-    can_send_message(msg);
-    tx_latency[4] = cansec_gettime() - t_init;
-}
-*/
-
 // Rate measurement par ID
 int can_rate_msrmnt()
 {
@@ -316,16 +224,30 @@ int can_rate_msrmnt()
     for (int i = 0; i < TABLE_SIZE; i++)
     {
         rates[i].value = 0;
-        rates[i].key = 0;
+        rates[i].id = 0;
+        rates[i].best_period = INT_MAX;
+        rates[i].worst_period = 0;
     }
+    int current_times[12];
     for (int i = 0; i < count; i++)
     {
         for (int j = 0; j < index; j++)
         {
-            if ((data[i].ide == 0 && rates[j].key == data[i].id) || // Normal ID check
-                (data[i].ide != 0 && (rates[j].key == (data[i].id << 18) + data[i].eid))) // Extended ID check
+            if ((data[i].ide == 0 && rates[j].id == data[i].id) || // Normal ID check
+                (data[i].ide != 0 && (rates[j].id == (data[i].id << 18) + data[i].eid))) // Extended ID check
             {
                 rates[j].value++;
+                current_times[i] = cansec_gettime();
+                int period = current - last_packet_times[i];
+                last_packet_times[i] = current;
+                if (period < rates[j].best_period)
+                {
+                    rates[j].best_period = period;
+                }
+                if (period > rates[j].worst_period)
+                {
+                    rates[j].worst_period = period;
+                }
                 found = true;
                 break;
             }
@@ -337,13 +259,13 @@ int can_rate_msrmnt()
         }
         if (data[i].ide == 0)
         {
-            rates[index].key = (long unsigned int)(data[i].id);
+            rates[index].id = (long unsigned int)(data[i].id);
         }
         else
         {
-            rates[index].key = (data[i].id << 18) + data[i].eid;
+            rates[index].id = (data[i].id << 18) + data[i].eid;
         }
-        // rates[index].key = (data[i].eid == 0 ? data[i].id : (data[i].id << 18) + data[i].eid);
+        // rates[index].id = (data[i].eid == 0 ? data[i].id : (data[i].id << 18) + data[i].eid);
         rates[index].value = 1;
         index++;
     };
@@ -351,14 +273,15 @@ int can_rate_msrmnt()
     int mean_whole, mean_thousandths, sd_whole, sd_thousandths; // variables pour recuperer partie entiere et millième
     float mean, sd;
     float hist[HISTORY_SIZE];
+    int period_hist[HISTORY_SIZE];
     int id_idx = -1;
     int id;
     //xil_printf("index=%d\r\n",index);
     for (int i = 0; i < index; i++)
     {
         bool show_rates = false;
-        //xil_printf("Rates[%d].key = %x \r\n", i, rates[i].key);
-        switch (rates[i].key)
+        //xil_printf("Rates[%d].id = %x \r\n", i, rates[i].id);
+        switch (rates[i].id)
         {
         case 0x110:
             id_idx = 1;
@@ -415,6 +338,8 @@ int can_rate_msrmnt()
         }
 
         rates_hist_known_IDs[id_idx][head].value = rates[i].value;
+        rates_hist_known_IDs[id_idx][head].best_period = rates[i].best_period;
+        rates_hist_known_IDs[id_idx][head].worst_period = rates[i].worst_period;
         for (int j = 0; j < sample_size; j++)
         {
             hist[j] = rates_hist_known_IDs[id_idx][j].value;
@@ -422,9 +347,24 @@ int can_rate_msrmnt()
         mean = calculateMEAN(hist, sample_size);
         sd = calculateSD(hist, sample_size);
 
+        for (int j = 0; j < sample_size; j++)
+        {
+            period_hist[j] = (float)rates_hist_known_IDs[id_idx][j].best_period;
+        }
+        mean_rates_known_IDs[i].best_period = calculateMEAN(period_hist, sample_size);
+        sd_rates_known_IDs[i].worst_period = calculateSD(period_hist, sample_size);
+
+        for (int j = 0; j < sample_size; j++)
+        {
+            period_hist[j] = (float)rates_hist_known_IDs[id_idx][j].worst_period;
+        }
+        mean_rates_known_IDs[i].worst_period = calculateMEAN(period_hist, sample_size);
+        sd_rates_known_IDs[i].worst_period = calculateSD(period_hist, sample_size);
+
+
         if (show_rates){
             mean_whole = mean;                             // recup partie entière
-            mean_thousandths = (mean_rates_kmown_IDs[id_idx].value - mean_whole) * 1000; // recup apres la virgule
+            mean_thousandths = (mean_rates_known_IDs[id_idx].value - mean_whole) * 1000; // recup apres la virgule
             sd_whole = sd;
             sd_thousandths = (sd_rates_known_IDs[id_idx].value - sd_whole) * 1000;
             xil_printf("Rate ID %x = %d  /  Mean = %d.%03d  /  SD = %d.%03d \r\n", id, (int)rates[id_idx].value, mean_whole, mean_thousandths, sd_whole, sd_thousandths);
@@ -434,18 +374,18 @@ int can_rate_msrmnt()
             if (isFull && rates[i].value > (mean + K_RATE * sd))
             {
                 rates_attack[id_idx].attack = FLOODING;
-                rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
+                rates_attack[id_idx].mean = mean_rates_known_IDs[id_idx].value;
                 rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
                 xil_printf("----------------------Flooding detected on ID %x --------------------------- \r\n", id);
             }
             else if (isFull && rates[i].value < (mean - K_RATE * sd))
             {
                 rates_attack[id_idx].attack = SUSPEND;
-                rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
+                rates_attack[id_idx].mean = mean_rates_known_IDs[id_idx].value;
                 rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
                 xil_printf("----------------------Suspend detected on ID %x --------------------------- \r\n", id);
             }
-            mean_rates_kmown_IDs[id_idx].value = mean;
+            mean_rates_known_IDs[id_idx].value = mean;
             sd_rates_known_IDs[id_idx].value = sd;
             continue;
         }
@@ -453,7 +393,7 @@ int can_rate_msrmnt()
         if (isFull && (rates[i].value < (rates_attack[id_idx].mean + K_RATE * rates_attack[id_idx].sd))
              && (rates[i].value > (rates_attack[id_idx].mean - K_RATE * rates_attack[id_idx].sd)))
         {
-            mean_rates_kmown_IDs[id_idx].value = mean;
+            mean_rates_known_IDs[id_idx].value = mean;
             sd_rates_known_IDs[id_idx].value = sd;
             xil_printf("----------------------%s stopped on ID %x --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack), id);
             rates_attack[id_idx].attack = NONE;
@@ -463,7 +403,7 @@ int can_rate_msrmnt()
             }else{
                 xil_printf("---------------------- Flooding detected on ID %x --------------------------- \r\n", id);
             }
-            mean_rates_kmown_IDs[id_idx].value = rates_attack[id_idx].mean;
+            mean_rates_known_IDs[id_idx].value = rates_attack[id_idx].mean;
             sd_rates_known_IDs[id_idx].value = rates_attack[id_idx].sd;
         }
     }
@@ -476,12 +416,6 @@ int can_rate_msrmnt()
     head = (head + 1) % HISTORY_SIZE;
     return index;
 }
-
-// TODO: Implement timestamp check ?
-// If we want to be able to detect spoofing, we must be able to detect 10-15ns derivation.
-// To do this, we need to add an hw timer in vivado to get the precise timestamps
-// Implementation details are yet to be found
-void timestamp_check() {};
 
 // Function to init all the security functions of the CANBus
 int can_security_init()
@@ -504,21 +438,41 @@ int can_security_init()
         tx_bndw[i] = 0.0;
     }
     latency_refresh_count = 0;
-    mean_rates_kmown_IDs[0].key = 0x100;
-    mean_rates_kmown_IDs[1].key = 0x110;
-    mean_rates_kmown_IDs[2].key = 0x120;
-    mean_rates_kmown_IDs[3].key = 0x180;
-    mean_rates_kmown_IDs[4].key = 0x1a0;
-    mean_rates_kmown_IDs[5].key = 0x1c0;
-    mean_rates_kmown_IDs[6].key = 0x280;
-    mean_rates_kmown_IDs[7].key = 0x2e0;
-    mean_rates_kmown_IDs[8].key = 0x300;
-    mean_rates_kmown_IDs[9].key = 0x318;
-    mean_rates_kmown_IDs[10].key = 0x3e0;
-    mean_rates_kmown_IDs[11].key = 0x5c0;
+    mean_rates_known_IDs[0].id = 0x100;
+    mean_rates_known_IDs[1].id = 0x110;
+    mean_rates_known_IDs[2].id = 0x120;
+    mean_rates_known_IDs[3].id = 0x180;
+    mean_rates_known_IDs[4].id = 0x1a0;
+    mean_rates_known_IDs[5].id = 0x1c0;
+    mean_rates_known_IDs[6].id = 0x280;
+    mean_rates_known_IDs[7].id = 0x2e0;
+    mean_rates_known_IDs[8].id = 0x300;
+    mean_rates_known_IDs[9].id = 0x318;
+    mean_rates_known_IDs[10].id = 0x3e0;
+    mean_rates_known_IDs[11].id = 0x5c0;
     for (int i = 0; i < 12; i++)
     {
-        mean_rates_kmown_IDs[i].value = 0.0;
+        mean_rates_known_IDs[i].value = 0.0;
+        mean_rates_known_IDs[i].best_period = 0;
+        mean_rates_known_IDs[i].worst_period = 0;
+    }
+    sd_rates_known_IDs[0].id = 0x100;
+    sd_rates_known_IDs[1].id = 0x110;
+    sd_rates_known_IDs[2].id = 0x120;
+    sd_rates_known_IDs[3].id = 0x180;
+    sd_rates_known_IDs[4].id = 0x1a0;
+    sd_rates_known_IDs[5].id = 0x1c0;
+    sd_rates_known_IDs[6].id = 0x280;
+    sd_rates_known_IDs[7].id = 0x2e0;
+    sd_rates_known_IDs[8].id = 0x300;
+    sd_rates_known_IDs[9].id = 0x318;
+    sd_rates_known_IDs[10].id = 0x3e0;
+    sd_rates_known_IDs[11].id = 0x5c0;
+    for (int i = 0; i < 12; i++)
+    {
+        sd_rates_known_IDs[i].value = 0.0;
+        sd_rates_known_IDs[i].best_period = 0;
+        sd_rates_known_IDs[i].worst_period = 0;
     }
 
     xTaskCreate(secTask, (const char *)"CANSecTask",

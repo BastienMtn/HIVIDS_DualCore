@@ -11,7 +11,6 @@
 // Function to apply the rule to the Can Frame
 bool applyRule(CANSecExtFrame frame, CANRule rule)
 {
-    // TODO - Add contains data field
     //xil_printf("Applying rule\r\n");
     bool pass = false;
     char errMessage[128] = "Default message\r\n";
@@ -27,7 +26,6 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
         sum = 0;
         switch (rule.options[i].type)
         {
-        // TODO - Change all data field checks to make them realistic
         case UpLimit:
             splitRuleValue(rule.options[i].value, DELIMITER, options); 
             startbyte = (int) options[0];
@@ -57,6 +55,7 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
             pass = (frame.msg.dlc == atoi(rule.options[i].value));
             break;
         case Contains:
+        {
             int value = atoi(rule.options[i].value);
             for (int j = 0; j < frame.msg.dlc; j++)
             {
@@ -67,7 +66,7 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
                 }
             }
             break;
-            
+        }
         case Message:
             strcpy(errMessage, rule.options[i].value);
             break;
@@ -78,7 +77,7 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
         if (!pass)
         {
             xil_printf("Error on ID = %x / Message : %s\r\n",frame.msg.id, errMessage);
-            return false;        
+            return false;
         }
     }
 
@@ -86,11 +85,11 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
 }
 
 // Function to check HTTP frame against rule table and store matching lines
-struct Error checkWithRules(CANSecExtFrame frame)
+Error checkWithRules(CANSecExtFrame frame)
 {
     //xil_printf("Checking with rules\r\n");
     // Initialize error struct
-    static struct Error error;
+    static Error error;
     error.count = 0;
 
     // Check if rule table is initialized
