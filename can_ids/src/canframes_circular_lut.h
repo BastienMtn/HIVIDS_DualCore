@@ -14,7 +14,7 @@
 
 #include "PmodCAN.h"
 
-#define TABLE_SIZE 2000
+#define TABLE_SIZE 10000
 
 // Structure to represent an entry in the lookup table
 typedef struct {

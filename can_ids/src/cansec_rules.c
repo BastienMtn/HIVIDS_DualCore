@@ -77,7 +77,7 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
 
         if (!pass)
         {
-            xil_printf("%s\r\n", errMessage);
+            xil_printf("Error on ID = %x / Message : %s\r\n",frame.msg.id, errMessage);
             return false;        
         }
     }
@@ -88,6 +88,7 @@ bool applyRule(CANSecExtFrame frame, CANRule rule)
 // Function to check HTTP frame against rule table and store matching lines
 struct Error checkWithRules(CANSecExtFrame frame)
 {
+    //xil_printf("Checking with rules\r\n");
     // Initialize error struct
     static struct Error error;
     error.count = 0;
@@ -113,6 +114,7 @@ struct Error checkWithRules(CANSecExtFrame frame)
         }
         if ((frame_id == ruleTable[i].id) && ((frame.msg.ide == 1) == ruleTable[i].extended) && (same_direction) && ((frame.msg.rtr == 1) == ruleTable[i].isRequest))
         {
+            //xil_printf("Applying Rule\r\n");
             if (!applyRule(frame, ruleTable[i]))
             {
                 // Store the matching rule line

@@ -33,6 +33,12 @@
 
 #define HISTORY_SIZE 60
 
+typedef enum{
+    NONE,
+    FLOODING,
+    SUSPEND
+}AttackScenario;
+
 struct Bandwidths{
     float rx_bndwth;
     float tx_bndwth;
@@ -41,7 +47,13 @@ struct Bandwidths{
 typedef struct {
     long unsigned int key;
     float value;
-} RateLUT; 
+} RateLUT;
+
+typedef struct {
+    AttackScenario attack;
+    float mean;
+    float sd;
+} RateAttackLUT;
 
 long unsigned int cansec_gettime();
 
@@ -55,7 +67,7 @@ int can_rate_msrmnt();
 
 void timestamp_check();
 
-bool DOS_detection();
+bool DOS_detection(struct Bandwidths bndwth);
 
 int can_security_init();
 
