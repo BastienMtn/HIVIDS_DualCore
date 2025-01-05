@@ -25,7 +25,8 @@ RateLUT sd_rates_known_IDs[12];
 RateLUT rates_hist_known_IDs[12][HISTORY_SIZE];
 RateAttackLUT rates_attack[12];
 // Threshold k for rate measurement
-#define K_RATE 3
+#define K_RATE 4
+#define K_DOS 5
 // Int to refresh the latency every 5 seconds only
 int latency_refresh_count;
 // Mutexes to protect the LUTs containing the sent and received frames
@@ -154,7 +155,7 @@ bool DOS_detection(struct Bandwidths bndwth)
     /*if(bndwth.rx_bndwth > rx_bd_mean*5){
         return true;
     }*/
-    return bndwth.rx_bndwth > rx_bd_mean + 3 * rx_bd_sd;
+    return bndwth.rx_bndwth > (rx_bd_mean + K_DOS * rx_bd_sd);
 }
 
 // TODO: Data consistency check
@@ -235,8 +236,13 @@ struct Bandwidths bandwidth_measurement()
     if (isFull && DOS_detection(resp))
     {
             xil_printf("----------------------A DOS attack has been detected--------------------------- \r\n");
-            rx_bndw[index] = rx_bndw[index-1];
-            tx_bndw[index] = tx_bndw[index-1];
+            if(index>0){
+                rx_bndw[index] = rx_bndw[index-1];
+                tx_bndw[index] = tx_bndw[index-1];
+            }else{
+                rx_bndw[index] = rx_bndw[HISTORY_SIZE-1];
+                tx_bndw[index] = tx_bndw[HISTORY_SIZE-1];
+            }
     }else{
             rx_bndw[index] = resp.rx_bndwth;
             tx_bndw[index] = resp.tx_bndwth;
@@ -425,14 +431,14 @@ int can_rate_msrmnt()
         }
 
         if (rates_attack[id_idx].attack == NONE) {
-            if (isFull && rates[i].value > mean + K_RATE * sd)
+            if (isFull && rates[i].value > (mean + K_RATE * sd))
             {
                 rates_attack[id_idx].attack = FLOODING;
                 rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
                 rates_attack[id_idx].sd = sd_rates_known_IDs[id_idx].value;
                 xil_printf("----------------------Flooding detected on ID %x --------------------------- \r\n", id);
             }
-            else if (isFull && rates[i].value < mean - K_RATE * sd)
+            else if (isFull && rates[i].value < (mean - K_RATE * sd))
             {
                 rates_attack[id_idx].attack = SUSPEND;
                 rates_attack[id_idx].mean = mean_rates_kmown_IDs[id_idx].value;
@@ -451,11 +457,11 @@ int can_rate_msrmnt()
             sd_rates_known_IDs[id_idx].value = sd;
             xil_printf("----------------------%s stopped on ID %x --------------------------- \r\n", get_attack_name(rates_attack[id_idx].attack), id);
             rates_attack[id_idx].attack = NONE;
-        }else {
-            if(rates_attack[id_idx].attack == FLOODING){
-                xil_printf("----------------------Flooding detected on ID %x --------------------------- \r\n", id);
+        }else{
+            if(rates_attack[id_idx].attack == SUSPEND){
+                xil_printf("---------------------- Suspend detected on ID %x --------------------------- \r\n", id);
             }else{
-                xil_printf("----------------------Suspend detected on ID %x --------------------------- \r\n", id);
+                xil_printf("---------------------- Flooding detected on ID %x --------------------------- \r\n", id);
             }
             mean_rates_kmown_IDs[id_idx].value = rates_attack[id_idx].mean;
             sd_rates_known_IDs[id_idx].value = rates_attack[id_idx].sd;

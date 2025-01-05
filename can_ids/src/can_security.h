@@ -36,7 +36,7 @@
 typedef enum{
     NONE,
     FLOODING,
-    SUSPEND,
+    SUSPEND
 }AttackScenario;
 
 struct Bandwidths{
