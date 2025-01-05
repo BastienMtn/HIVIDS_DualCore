@@ -37,8 +37,8 @@
 typedef enum{
     NONE,
     FLOODING,
-    SUSPEND,
-} AttackScenario;
+    SUSPEND
+}AttackScenario;
 
 typedef struct{
     float rx_bndwth;

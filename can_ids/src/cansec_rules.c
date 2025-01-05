@@ -113,6 +113,7 @@ Error checkWithRules(CANSecExtFrame frame)
         }
         if ((frame_id == ruleTable[i].id) && ((frame.msg.ide == 1) == ruleTable[i].extended) && (same_direction) && ((frame.msg.rtr == 1) == ruleTable[i].isRequest))
         {
+            //xil_printf("Applying Rule\r\n");
             if (!applyRule(frame, ruleTable[i]))
             {
                 // Store the matching rule line

@@ -75,7 +75,7 @@
 #define ARM1_STARTADR 0xFFFFFFF0
 #define ARM1_BASEADDR 0x1FE01000
 #define SD_WRITE_BUF_SIZE 1000
-// #define FORMAT_SD_CARD
+//#define FORMAT_SD_CARD
 
 /**************************** Type Definitions *******************************/
 
