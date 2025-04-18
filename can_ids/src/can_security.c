@@ -228,7 +228,6 @@ int can_rate_msrmnt()
         rates[i].best_period = INT_MAX;
         rates[i].worst_period = 0;
     }
-    int current_times[12];
     for (int i = 0; i < count; i++)
     {
         for (int j = 0; j < index; j++)
@@ -237,9 +236,9 @@ int can_rate_msrmnt()
                 (data[i].ide != 0 && (rates[j].id == (data[i].id << 18) + data[i].eid))) // Extended ID check
             {
                 rates[j].value++;
-                current_times[i] = cansec_gettime();
-                int period = current - last_packet_times[i];
-                last_packet_times[i] = current;
+                int current_time = cansec_gettime();
+                int period = current_time - last_packet_times[i];
+                last_packet_times[i] = current_time;
                 if (period < rates[j].best_period)
                 {
                     rates[j].best_period = period;
@@ -391,7 +390,7 @@ int can_rate_msrmnt()
         }
         // Would be here if there is an attack on the ID
         if (isFull && (rates[i].value < (rates_attack[id_idx].mean + K_RATE * rates_attack[id_idx].sd))
-             && (rates[i].value > (rates_attack[id_idx].mean - K_RATE * rates_attack[id_idx].sd)))
+            && (rates[i].value > (rates_attack[id_idx].mean - K_RATE * rates_attack[id_idx].sd)))
         {
             mean_rates_known_IDs[id_idx].value = mean;
             sd_rates_known_IDs[id_idx].value = sd;
@@ -495,3 +494,4 @@ int can_security_init()
 
     return EXIT_SUCCESS;
 }
+ 
