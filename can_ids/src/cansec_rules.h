@@ -61,20 +61,21 @@ typedef struct{
     int num_options;
 }CANRule;
 
-// Struct for CAN Frame, its timestmp and its direction to check for security
-typedef struct {
-    long unsigned int timestp;
-    Direction dir;
-    CAN_Message msg;
-	bool ok;
-    Error errors;
-} CANSecExtFrame;
-
 // Error struct to store matching rule line
 typedef struct {
     char matchingRules[MAX_RULES];
     int count;
 } Error;
+
+// Struct for CAN Frame, its timestmp and its direction to check for security
+typedef struct {
+    long unsigned int timestp;
+    Direction dir;
+    CAN_Message msg;
+    bool ok;
+    Error errors;
+} CANSecExtFrame;
+
 
 // Function to compare HTTP frame ID with Snort-like rule
 bool applyRule(CANSecExtFrame frame, CANRule rule);
